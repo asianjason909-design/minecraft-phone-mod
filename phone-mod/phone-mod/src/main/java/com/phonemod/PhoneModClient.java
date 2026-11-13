@@ -20,7 +20,7 @@ public class PhoneModClient implements ClientModInitializer {
 
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             while (OPEN_PHONE.consumeClick()) {
-                if (mc.screen == null && mc.player != null) {
+                if (mc.player != null) {
                     mc.setScreenAndShow(new PhoneScreen());
                 }
             }
