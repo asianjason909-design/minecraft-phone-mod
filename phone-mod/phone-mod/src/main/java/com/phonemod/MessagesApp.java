@@ -10,7 +10,7 @@ import java.util.List;
 /** The Messages app: contact list (mod users only) and chat threads. */
 final class MessagesApp {
     String open;                 // null = contact list, else the contact being chatted with
-    ChessGame pendingChess;      // set when the user taps into a chess game; PhoneScreen picks it up
+    Game pendingGame;            // set when the user taps into a duel; PhoneScreen picks it up
     private String input = "";
     private long scanUntil;
     private int scanCount;
@@ -78,14 +78,14 @@ final class MessagesApp {
         PhoneScreen.txt(g, "<", 9, 6, 0xFFFFFFFF);
         PhoneScreen.txt(g, open, 24, 7, 0xFFFFFFFF);
 
-        // chess row
-        String label;
-        if (PhoneNet.games.containsKey(open)) label = "Open chess game";
-        else if (PhoneNet.invitesIn.contains(open)) label = "Accept chess challenge";
-        else if (PhoneNet.invitesOut.contains(open)) label = "Challenge sent...";
-        else label = "Challenge to chess";
-        PhoneScreen.box(g, 4, 162, 114, 176, 0xFF3F6E3F);
-        PhoneScreen.ctr(g, label, PhoneScreen.SW / 2, 166, 0xFFFFFFFF, 0.8f);
+        // duel buttons: green = open game, gold = they challenged you, gray = waiting, blue = challenge them
+        for (int i = 0; i < PhoneNet.GAME_IDS.length; i++) {
+            String k = PhoneNet.key(open, PhoneNet.GAME_IDS[i]);
+            int col = PhoneNet.games.containsKey(k) ? 0xFF3F6E3F : PhoneNet.invitesIn.contains(k) ? 0xFFB8860B
+                    : PhoneNet.invitesOut.contains(k) ? 0xFF555555 : 0xFF2E5C9E;
+            PhoneScreen.box(g, 4 + i * 28, 162, 4 + i * 28 + 26, 176, col);
+            PhoneScreen.ctr(g, PhoneNet.GAME_LABELS[i], 4 + i * 28 + 13, 166, 0xFFFFFFFF, 0.65f);
+        }
 
         // input row
         PhoneScreen.box(g, 4, 180, 86, 196, 0xFF222633);
@@ -95,7 +95,7 @@ final class MessagesApp {
         PhoneScreen.txt(g, shown + (blink ? "_" : ""), 7, 184, 0xFFFFFFFF);
         PhoneScreen.box(g, 88, 180, 114, 196, 0xFF2E86DE);
         PhoneScreen.txt(g, "Send", 91, 184, 0xFFFFFFFF);
-        PhoneScreen.ctr(g, "type, Enter to send, Esc = back", PhoneScreen.SW / 2, 201, 0xFF6F7585, 0.7f);
+        PhoneScreen.ctr(g, "Duel: tap a game  |  Esc = back", PhoneScreen.SW / 2, 201, 0xFF6F7585, 0.7f);
     }
 
     // ---------- input ----------
@@ -117,20 +117,27 @@ final class MessagesApp {
         }
         if (x >= 4 && x <= 18 && y >= 4 && y <= 18) { open = null; return; }
         if (x >= 88 && x <= 114 && y >= 180 && y <= 196) { send(); return; }
-        if (x >= 4 && x <= 114 && y >= 162 && y <= 176) chessAction();
+        if (y >= 162 && y <= 176) {
+            int i = (int) ((x - 4) / 28);
+            if (i >= 0 && i < PhoneNet.GAME_IDS.length && x <= 4 + i * 28 + 26) gameAction(i);
+        }
     }
 
-    private void chessAction() {
-        ChessGame g = PhoneNet.games.get(open);
-        if (g != null) { pendingChess = g; return; }
-        if (PhoneNet.invitesIn.remove(open)) {
-            ChessGame ng = new ChessGame(open, false);
-            PhoneNet.games.put(open, ng);
-            PhoneNet.sendChess(open, "A");
-            pendingChess = ng;
+    private void gameAction(int i) {
+        char gid = PhoneNet.GAME_IDS[i];
+        String k = PhoneNet.key(open, gid);
+        PhoneNet.NetPlay existing = PhoneNet.games.get(k);
+        if (existing instanceof Game gm) { pendingGame = gm; return; }
+        if (PhoneNet.invitesIn.remove(k)) {
+            Game gm = Games.create(gid, open, false);
+            if (gm instanceof PhoneNet.NetPlay np) {
+                PhoneNet.games.put(k, np);
+                PhoneNet.sendGame(open, gid, "A");
+                pendingGame = gm;
+            }
             return;
         }
-        if (PhoneNet.invitesOut.add(open)) PhoneNet.sendChess(open, "N");
+        if (PhoneNet.invitesOut.add(k)) PhoneNet.sendGame(open, gid, "N");
     }
 
     private void send() {

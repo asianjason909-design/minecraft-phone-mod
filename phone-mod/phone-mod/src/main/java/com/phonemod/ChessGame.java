@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Random;
 
 /** Full-rules chess (castling, en passant, auto-queen promotion). Opponent = a friend, or the computer when null. */
-final class ChessGame {
+final class ChessGame extends Game implements PhoneNet.NetPlay {
     static final int CELL = 14, BX = 3, BY = 34;
     static final int[] VAL = {0, 100, 320, 330, 500, 900, 0};
     static final String LETTERS = " PNBRQK";
@@ -18,7 +18,7 @@ final class ChessGame {
     boolean meWhite;         // side the human plays
     private final int[] b;   // index = rank*8+file, rank 0 = white's first rank; +white, -black; 1P 2N 3B 4R 5Q 6K
     private boolean whiteTurn = true, wK = true, wQ = true, bK = true, bQ = true;
-    private int ep = -1, sel = -1, lastFrom = -1, lastTo = -1;
+    private int ep = -1, sel = -1, lastFrom = -1, lastTo = -1, half;
     private List<Integer> selMoves = new ArrayList<>();
     private boolean over;
     private String status = "";
@@ -28,6 +28,8 @@ final class ChessGame {
     private boolean rematchSent, rematchIn;
 
     ChessGame(String opponent, boolean meWhite) {
+        super("chess", "Chess", "CH", 0xFF769656);
+        resetOnOpen = false;
         this.opponent = opponent;
         this.b = new int[64];
         reset(meWhite);
@@ -42,7 +44,7 @@ final class ChessGame {
             b[f] = back[f]; b[8 + f] = 1; b[48 + f] = -1; b[56 + f] = -back[f];
         }
         whiteTurn = true; wK = true; wQ = true; bK = true; bQ = true;
-        ep = -1; sel = -1; lastFrom = -1; lastTo = -1;
+        ep = -1; sel = -1; lastFrom = -1; lastTo = -1; half = 0;
         selMoves = new ArrayList<>();
         over = false; status = ""; aiTimer = 0;
         rematchSent = false; rematchIn = false;
@@ -51,18 +53,19 @@ final class ChessGame {
     private void requestRematch() {
         if (rematchSent) return;
         rematchSent = true;
-        PhoneNet.sendChess(opponent, "X");
+        PhoneNet.sendGame(opponent, 'C', "X");
         if (rematchIn) reset(!meWhite);      // both want it: swap colours and go
     }
 
-    void remoteRematch() {
+    @Override public void remoteRematch() {
         rematchIn = true;
         if (rematchSent) reset(!meWhite);
     }
 
     private ChessGame(ChessGame o) {
+        super("chess", "Chess", "CH", 0xFF769656);
         opponent = o.opponent; meWhite = o.meWhite; b = o.b.clone();
-        whiteTurn = o.whiteTurn; wK = o.wK; wQ = o.wQ; bK = o.bK; bQ = o.bQ; ep = o.ep;
+        whiteTurn = o.whiteTurn; wK = o.wK; wQ = o.wQ; bK = o.bK; bQ = o.bQ; ep = o.ep; half = o.half;
     }
 
     // ---------- rules ----------
@@ -174,6 +177,7 @@ final class ChessGame {
         if (from == 7 || to == 7) wK = false;
         if (from == 56 || to == 56) bQ = false;
         if (from == 63 || to == 63) bK = false;
+        half = (Math.abs(orig) == 1 || b[to] != 0 || flag == 1) ? 0 : half + 1;
         ep = flag == 5 ? (from + to) / 2 : -1;
         b[to] = p; b[from] = 0;
         whiteTurn = !whiteTurn;
@@ -192,12 +196,16 @@ final class ChessGame {
 
     private boolean inCheck() { return attacked(kingSq(whiteTurn), !whiteTurn); }
 
+    private boolean bareKings() { int n = 0; for (int v : b) if (v != 0) n++; return n == 2; }
+
     private void updateStatus() {
         boolean chk = inCheck();
         if (legal().isEmpty()) {
             over = true;
             status = chk ? (whiteTurn ? "Black" : "White") + " wins - checkmate" : "Stalemate";
-        } else status = chk ? "Check!" : "";
+        } else if (half >= 100) { over = true; status = "Draw - 50 move rule"; }
+        else if (bareKings()) { over = true; status = "Draw - only kings left"; }
+        else status = chk ? "Check!" : "";
     }
 
     // ---------- playing ----------
@@ -212,10 +220,10 @@ final class ChessGame {
         lastFrom = m & 63; lastTo = (m >> 6) & 63;
         sel = -1; selMoves.clear(); aiTimer = 0;
         updateStatus();
-        if (local && opponent != null) PhoneNet.sendChess(opponent, "V" + name(lastFrom) + name(lastTo));
+        if (local && opponent != null) PhoneNet.sendGame(opponent, 'C', "V" + name(lastFrom) + name(lastTo));
     }
 
-    void remoteMove(String s) {
+    @Override public void remoteMove(String s) {
         if (over || s.length() < 4 || whiteTurn == meWhite) return;
         try {
             int from = parse(s, 0), to = parse(s, 2);
@@ -223,12 +231,12 @@ final class ChessGame {
         } catch (RuntimeException ignored) { }
     }
 
-    void remoteResign() { if (!over) { over = true; status = "Opponent resigned - you win!"; } }
+    @Override public void remoteResign() { if (!over) { over = true; status = "Opponent resigned - you win!"; } }
 
     private void resign() {
         if (over) return;
         over = true; status = "You resigned";
-        if (opponent != null) PhoneNet.sendChess(opponent, "R");
+        if (opponent != null) PhoneNet.sendGame(opponent, 'C', "R");
     }
 
     void update(float dt) {
@@ -273,6 +281,17 @@ final class ChessGame {
         }
         play(bm, false);
     }
+
+    boolean canMove() { return myTurn(); }
+    boolean over() { return over; }
+    String statusText() { return status; }
+
+    @Override void press(float x, float y) {
+        int r = buttons(x, y);
+        if (r == 2) reset(true); else if (r == 0) click(x, y);
+    }
+
+    @Override void icon(net.minecraft.client.gui.GuiGraphicsExtractor g, int x, int y) { PhoneScreen.builtinIcon(g, 3, x, y); }
 
     // ---------- input ----------
     private int squareAt(float x, float y) {

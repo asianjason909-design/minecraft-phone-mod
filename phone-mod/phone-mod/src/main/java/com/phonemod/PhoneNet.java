@@ -10,29 +10,41 @@ import net.minecraft.network.chat.contents.TranslatableContents;
 import java.util.*;
 
 /**
- * Phone messaging over normal /msg whispers. Every phone message starts with two invisible
- * characters (MARK). Whispers that start with MARK are hidden from chat and shown on the phone.
+ * Phone messaging and duels over normal /msg whispers. Every phone whisper starts with two invisible
+ * characters (MARK). Whispers that start with MARK are hidden from chat and handled here.
  * Only players who answer a "ping" (i.e. have this mod) ever appear as contacts.
  */
 final class PhoneNet {
     static final String MARK = "\u2062\u2063";
 
+    /** A two-player game that can receive moves from a friend. */
+    interface NetPlay {
+        void remoteMove(String s);
+        void remoteResign();
+        void remoteRematch();
+    }
+
     record Msg(boolean mine, String text) { }
+
+    // games you can duel in: id char, full name, short button label
+    static final char[] GAME_IDS = {'C', 'T', '4', 'K'};
+    static final String[] GAME_NAMES = {"Chess", "Tic Tac Toe", "Connect 4", "Checkers"};
+    static final String[] GAME_LABELS = {"Chess", "TicTac", "Conn 4", "Chkrs"};
 
     static final Set<String> contacts = new LinkedHashSet<>();
     static final Map<String, List<Msg>> threads = new HashMap<>();
     static final Map<String, Integer> unread = new HashMap<>();
-    static final Map<String, ChessGame> games = new HashMap<>();
+    static final Map<String, NetPlay> games = new HashMap<>();          // key(opponent, gameId)
     static final Set<String> invitesIn = new HashSet<>(), invitesOut = new HashSet<>();
 
     private static final Deque<String> outbox = new ArrayDeque<>();
     private static long lastSend;
 
+    static String key(String opponent, char gid) { return opponent + "|" + gid; }
+
     static void init() {
-        // hide + process phone whispers (vanilla /msg style)
         ClientReceiveMessageEvents.ALLOW_CHAT.register((message, signed, sender, params, ts) -> !handle(message));
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> !handle(message));
-        // send queued whispers slowly so servers don't flag command spam
         ClientTickEvents.END_CLIENT_TICK.register(PhoneNet::tick);
     }
 
@@ -65,27 +77,34 @@ final class PhoneNet {
                 unread.merge(from, 1, Integer::sum);
                 notify("[Phone] " + from + ": " + rest);
             }
-            case 'C' -> chess(from, rest);
+            case 'G' -> game(from, rest);
             default -> { }
         }
     }
 
-    private static void chess(String from, String rest) {
-        if (rest.isEmpty()) return;
+    private static String gameName(char gid) {
+        for (int i = 0; i < GAME_IDS.length; i++) if (GAME_IDS[i] == gid) return GAME_NAMES[i];
+        return "a game";
+    }
+
+    private static void game(String from, String rest) {
+        if (rest.length() < 2) return;
+        char gid = rest.charAt(0), sub = rest.charAt(1);
+        String payload = rest.substring(2), k = key(from, gid);
         contacts.add(from);
-        switch (rest.charAt(0)) {
-            case 'N' -> { invitesIn.add(from); notify("[Phone] " + from + " challenged you to chess"); }
+        switch (sub) {
+            case 'N' -> { invitesIn.add(k); notify("[Phone] " + from + " challenged you to " + gameName(gid)); }
             case 'A' -> {
-                if (invitesOut.remove(from)) {
-                    games.put(from, new ChessGame(from, true));
-                    notify("[Phone] " + from + " accepted your chess challenge");
+                if (invitesOut.remove(k)) {
+                    Game g = Games.create(gid, from, true);
+                    if (g instanceof NetPlay np) { games.put(k, np); notify("[Phone] " + from + " accepted your " + gameName(gid) + " challenge"); }
                 }
             }
-            case 'V' -> { ChessGame g = games.get(from); if (g != null) g.remoteMove(rest.substring(1)); }
-            case 'R' -> { ChessGame g = games.get(from); if (g != null) g.remoteResign(); }
+            case 'V' -> { NetPlay g = games.get(k); if (g != null) g.remoteMove(payload); }
+            case 'R' -> { NetPlay g = games.get(k); if (g != null) g.remoteResign(); }
             case 'X' -> {
-                ChessGame g = games.get(from);
-                if (g != null) { g.remoteRematch(); notify("[Phone] " + from + " wants a rematch"); }
+                NetPlay g = games.get(k);
+                if (g != null) { g.remoteRematch(); notify("[Phone] " + from + " wants a rematch in " + gameName(gid)); }
             }
             default -> { }
         }
@@ -106,7 +125,8 @@ final class PhoneNet {
         enqueue(to, 'M', text);
     }
 
-    static void sendChess(String to, String body) { enqueue(to, 'C', body); }
+    /** body examples: "N" invite, "A" accept, "V..." a move, "R" resign, "X" rematch */
+    static void sendGame(String to, char gid, String body) { enqueue(to, 'G', "" + gid + body); }
 
     /** Pings everyone online; only players with the mod answer, and they become contacts. */
     static int scan() {
