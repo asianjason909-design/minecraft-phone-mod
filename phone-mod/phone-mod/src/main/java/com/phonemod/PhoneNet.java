@@ -89,7 +89,7 @@ final class PhoneNet {
 
     private static void notify(String s) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null) mc.player.displayClientMessage(Component.literal(s), true);
+       if (mc.player != null) mc.gui.setOverlayMessage(Component.literal(s), false);
     }
 
     // ---------- sending ----------
