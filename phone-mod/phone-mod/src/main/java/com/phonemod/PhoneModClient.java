@@ -18,6 +18,8 @@ public class PhoneModClient implements ClientModInitializer {
         OPEN_PHONE = KeyMappingHelper.registerKeyMapping(
                 new KeyMapping("key.phonemod.open", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_P, category));
 
+        PhoneNet.init();
+
         ClientTickEvents.END_CLIENT_TICK.register(mc -> {
             while (OPEN_PHONE.consumeClick()) {
                 if (mc.player != null) {

@@ -4,6 +4,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -13,12 +14,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
 
-/** The phone: a hand swings it up from the bottom-right, then home screen + apps. */
+/** The phone: swings up from the bottom-right, then home screen + apps. */
 public class PhoneScreen extends Screen {
     static final int PW = 130, PH = 250;                  // whole phone (virtual size)
     static final int SX = 6, SY = 14, SW = 118, SH = 214; // display rectangle
 
-    private enum App { HOME, FLAPPY, BLAST, SNAKE, SETTINGS }
+    private enum App { HOME, FLAPPY, BLAST, SNAKE, CHESS, MESSAGES, SETTINGS }
 
     // ---------- wallpapers (saved to config/phonemod.txt) ----------
     private static final String[] WALL_NAMES = {"Dusk", "Sunset", "Ocean", "Forest", "Candy", "Lava"};
@@ -45,6 +46,8 @@ public class PhoneScreen extends Screen {
     private final FlappyGame flappy = new FlappyGame();
     private final BlockBlastGame blast = new BlockBlastGame();
     private final SnakeGame snake = new SnakeGame();
+    private final MessagesApp messages = new MessagesApp();
+    private ChessGame chess;
     private float scale = 1f, pcx, pcy;   // phone centre on screen + scale
 
     public PhoneScreen() { super(Component.literal("Phone")); }
@@ -60,6 +63,14 @@ public class PhoneScreen extends Screen {
 
     static void txt(GuiGraphicsExtractor g, String s, int x, int y, int color) {
         g.text(Minecraft.getInstance().font, s, SX + x, SY + y, color);
+    }
+
+    static void left(GuiGraphicsExtractor g, String s, int x, int y, int color, float sc) {
+        g.pose().pushMatrix();
+        g.pose().translate(SX + x, SY + y);
+        g.pose().scale(sc, sc);
+        g.text(Minecraft.getInstance().font, s, 0, 0, color);
+        g.pose().popMatrix();
     }
 
     static void ctr(GuiGraphicsExtractor g, String s, int cx, int y, int color, float sc) {
@@ -120,10 +131,6 @@ public class PhoneScreen extends Screen {
         g.pose().scale(scale, scale);
         g.pose().translate(-PW / 2f, -PH / 2f);
 
-        // the arm holding the phone (drawn first so the phone covers its top)
-        g.fill(PW / 2 - 17, PH - 40, PW / 2 + 17, PH + 30, 0xFFC68A5E);   // hand
-        g.fill(PW / 2 - 17, PH + 30, PW / 2 + 17, PH + 700, 0xFF2A9D9D);  // sleeve
-
         round(g, 0, 0, PW, PH, 0xFF3A3A44);
         round(g, 1, 1, PW - 1, PH - 1, 0xFF111114);
         g.fill(SX, SY, SX + SW, SY + SH, 0xFF000000);
@@ -135,50 +142,77 @@ public class PhoneScreen extends Screen {
             case FLAPPY -> { if (live) flappy.update(dt); flappy.draw(g); }
             case BLAST -> blast.draw(g, lx, ly);
             case SNAKE -> { if (live) snake.update(dt); snake.draw(g); }
+            case CHESS -> { if (live) chess.update(dt); chess.draw(g); }
+            case MESSAGES -> messages.draw(g);
         }
 
         round(g, PW / 2 - 12, 5, PW / 2 + 12, 10, 0xFF000000);                  // camera pill
         g.fill(PW / 2 - 16, PH - 8, PW / 2 + 16, PH - 6, app == App.HOME ? 0xFF555555 : 0xFFDDDDDD); // home bar
-
-        // fingers wrapped around the sides
-        for (int y = 168; y <= 192; y += 12) {
-            g.fill(-4, y, 3, y + 9, 0xFFC68A5E);
-            g.fill(PW - 3, y, PW + 4, y + 9, 0xFFC68A5E);
-        }
         g.pose().popMatrix();
     }
+
+    private static final String[] LABELS = {"Blast", "Flappy", "Snake", "Chess", "Messages", "Settings"};
 
     private void drawHome(GuiGraphicsExtractor g) {
         g.fillGradient(SX, SY, SX + SW, SY + SH, WALLS[wallpaper][0], WALLS[wallpaper][1]);
         LocalTime t = LocalTime.now();
         ctr(g, String.format("%02d:%02d", t.getHour(), t.getMinute()), SW / 2, 14, 0xFFFFFFFF, 2.5f);
 
-        // Block Blast
-        box(g, 14, 60, 50, 96, 0xFF263056);
-        box(g, 18, 64, 31, 77, 0xFFE74C3C); box(g, 33, 64, 46, 77, 0xFFF1C40F);
-        box(g, 18, 79, 31, 92, 0xFF3498DB); box(g, 33, 79, 46, 92, 0xFF2ECC71);
-        ctr(g, "Block Blast", 32, 100, 0xFFFFFFFF, 0.8f);
+        for (int i = 0; i < 6; i++) {
+            int x = iconX(i), y = iconY(i);
+            drawIcon(g, i, x, y);
+            ctr(g, LABELS[i], x + 15, y + 34, 0xFFFFFFFF, 0.7f);
+        }
+        int un = PhoneNet.totalUnread();
+        if (un > 0) {
+            int x = iconX(4), y = iconY(4);
+            box(g, x + 23, y - 3, x + 34, y + 8, 0xFFE53935);
+            ctr(g, String.valueOf(Math.min(un, 9)), x + 28, y - 2, 0xFFFFFFFF, 0.8f);
+        }
+    }
 
-        // Flappy Bird
-        box(g, 68, 60, 104, 96, 0xFF70C5CE);
-        box(g, 92, 60, 100, 72, 0xFF5AB031); box(g, 92, 84, 100, 96, 0xFF5AB031);
-        box(g, 76, 74, 88, 82, 0xFFF7D308); box(g, 84, 75, 86, 77, 0xFF000000); box(g, 88, 77, 91, 79, 0xFFFF8800);
-        ctr(g, "Flappy Bird", 86, 100, 0xFFFFFFFF, 0.8f);
+    private static int iconX(int i) { return 8 + (i % 3) * 36; }
+    private static int iconY(int i) { return 58 + (i / 3) * 56; }
 
-        // Snake
-        box(g, 14, 118, 50, 154, 0xFF2E7D32);
-        box(g, 20, 142, 28, 150, 0xFF1E88E5); box(g, 28, 142, 36, 150, 0xFF1E88E5); box(g, 36, 142, 44, 150, 0xFF1E88E5);
-        box(g, 36, 134, 44, 142, 0xFF1E88E5); box(g, 36, 126, 44, 134, 0xFF64B5F6);
-        box(g, 38, 128, 40, 130, 0xFF000000); box(g, 21, 126, 27, 132, 0xFFE53935);
-        ctr(g, "Snake", 32, 158, 0xFFFFFFFF, 0.8f);
-
-        // Settings (gear)
-        box(g, 68, 118, 104, 154, 0xFF5A5F6B);
-        box(g, 80, 130, 92, 142, 0xFFE0E0E0);
-        box(g, 84, 126, 88, 130, 0xFFE0E0E0); box(g, 84, 142, 88, 146, 0xFFE0E0E0);
-        box(g, 76, 134, 80, 138, 0xFFE0E0E0); box(g, 92, 134, 96, 138, 0xFFE0E0E0);
-        box(g, 84, 134, 88, 138, 0xFF5A5F6B);
-        ctr(g, "Settings", 86, 158, 0xFFFFFFFF, 0.8f);
+    private void drawIcon(GuiGraphicsExtractor g, int i, int x, int y) {
+        switch (i) {
+            case 0 -> {   // Block Blast
+                box(g, x, y, x + 30, y + 30, 0xFF263056);
+                box(g, x + 3, y + 3, x + 14, y + 14, 0xFFE74C3C); box(g, x + 16, y + 3, x + 27, y + 14, 0xFFF1C40F);
+                box(g, x + 3, y + 16, x + 14, y + 27, 0xFF3498DB); box(g, x + 16, y + 16, x + 27, y + 27, 0xFF2ECC71);
+            }
+            case 1 -> {   // Flappy Bird
+                box(g, x, y, x + 30, y + 30, 0xFF70C5CE);
+                box(g, x + 22, y, x + 30, y + 10, 0xFF5AB031); box(g, x + 22, y + 20, x + 30, y + 30, 0xFF5AB031);
+                box(g, x + 6, y + 11, x + 18, y + 19, 0xFFF7D308); box(g, x + 14, y + 12, x + 16, y + 14, 0xFF000000);
+                box(g, x + 18, y + 14, x + 21, y + 16, 0xFFFF8800);
+            }
+            case 2 -> {   // Snake
+                box(g, x, y, x + 30, y + 30, 0xFF2E7D32);
+                box(g, x + 4, y + 20, x + 10, y + 26, 0xFF1E88E5); box(g, x + 10, y + 20, x + 16, y + 26, 0xFF1E88E5);
+                box(g, x + 16, y + 20, x + 22, y + 26, 0xFF1E88E5); box(g, x + 16, y + 14, x + 22, y + 20, 0xFF1E88E5);
+                box(g, x + 16, y + 8, x + 22, y + 14, 0xFF64B5F6); box(g, x + 5, y + 5, x + 10, y + 10, 0xFFE53935);
+            }
+            case 3 -> {   // Chess
+                box(g, x, y, x + 30, y + 30, 0xFF769656);
+                box(g, x, y, x + 15, y + 15, 0xFFEEEED2); box(g, x + 15, y + 15, x + 30, y + 30, 0xFFEEEED2);
+                box(g, x + 8, y + 6, x + 22, y + 24, 0xFF222222);
+                ctr(g, "K", x + 15, y + 11, 0xFFF8F8F8, 1.2f);
+            }
+            case 4 -> {   // Messages
+                box(g, x, y, x + 30, y + 30, 0xFF2E86DE);
+                box(g, x + 5, y + 7, x + 25, y + 21, 0xFFFFFFFF); box(g, x + 8, y + 21, x + 14, y + 25, 0xFFFFFFFF);
+                box(g, x + 9, y + 13, x + 12, y + 16, 0xFF2E86DE); box(g, x + 14, y + 13, x + 17, y + 16, 0xFF2E86DE);
+                box(g, x + 19, y + 13, x + 22, y + 16, 0xFF2E86DE);
+            }
+            default -> {  // Settings gear
+                box(g, x, y, x + 30, y + 30, 0xFF5A5F6B);
+                box(g, x + 9, y + 9, x + 21, y + 21, 0xFFE0E0E0);
+                box(g, x + 13, y + 5, x + 17, y + 9, 0xFFE0E0E0); box(g, x + 13, y + 21, x + 17, y + 25, 0xFFE0E0E0);
+                box(g, x + 5, y + 13, x + 9, y + 17, 0xFFE0E0E0); box(g, x + 21, y + 13, x + 25, y + 17, 0xFFE0E0E0);
+                box(g, x + 13, y + 13, x + 17, y + 17, 0xFF5A5F6B);
+            }
+        }
     }
 
     private void drawSettings(GuiGraphicsExtractor g) {
@@ -196,10 +230,22 @@ public class PhoneScreen extends Screen {
     // ---------- input ----------
     @Override
     public boolean keyPressed(KeyEvent e) {
-        if (PhoneModClient.OPEN_PHONE.matches(e)) { startClose(); return true; }
+        boolean typing = app == App.MESSAGES && messages.open != null;
+        if (typing) {
+            if (messages.key(e.key())) return true;   // swallow keys so typing never triggers shortcuts
+        } else if (PhoneModClient.OPEN_PHONE.matches(e)) { startClose(); return true; }
         if (app == App.FLAPPY && e.key() == GLFW.GLFW_KEY_SPACE) { flappy.flap(); return true; }
         if (app == App.SNAKE && snake.key(e.key())) return true;
         return super.keyPressed(e);   // Esc -> onClose()
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent e) {
+        if (app == App.MESSAGES && messages.open != null) {
+            messages.typed(Character.toString(e.codepoint()));
+            return true;
+        }
+        return super.charTyped(e);
     }
 
     private float localX(double mx) { return (float) ((mx - pcx) / scale) + PW / 2f; }
@@ -213,14 +259,26 @@ public class PhoneScreen extends Screen {
         float x = lx - SX, y = ly - SY;
         switch (app) {
             case HOME -> {
-                if (hit(x, y, 14, 60)) { blast.reset(); app = App.BLAST; }
-                else if (hit(x, y, 68, 60)) { flappy.reset(); app = App.FLAPPY; }
-                else if (hit(x, y, 14, 118)) { snake.reset(); app = App.SNAKE; }
-                else if (hit(x, y, 68, 118)) { app = App.SETTINGS; }
+                for (int i = 0; i < 6; i++) {
+                    if (x >= iconX(i) && x <= iconX(i) + 30 && y >= iconY(i) && y <= iconY(i) + 30) { openApp(i); break; }
+                }
             }
             case FLAPPY -> flappy.flap();
             case BLAST -> blast.press(x, y);
             case SNAKE -> snake.press(x, y);
+            case CHESS -> {
+                int r = chess.buttons(x, y);
+                if (r == 2) chess = new ChessGame(null, true);
+                else if (r == 0) chess.click(x, y);
+            }
+            case MESSAGES -> {
+                messages.click(x, y);
+                if (messages.pendingChess != null) {
+                    chess = messages.pendingChess;
+                    messages.pendingChess = null;
+                    app = App.CHESS;
+                }
+            }
             case SETTINGS -> {
                 for (int i = 0; i < WALLS.length; i++) {
                     int sx = 4 + (i % 3) * 38, sy = 34 + (i / 3) * 66;
@@ -231,13 +289,23 @@ public class PhoneScreen extends Screen {
         return true;
     }
 
+    private void openApp(int i) {
+        switch (i) {
+            case 0 -> { blast.reset(); app = App.BLAST; }
+            case 1 -> { flappy.reset(); app = App.FLAPPY; }
+            case 2 -> { snake.reset(); app = App.SNAKE; }
+            case 3 -> {
+                if (chess == null || chess.opponent != null) chess = new ChessGame(null, true);
+                app = App.CHESS;
+            }
+            case 4 -> app = App.MESSAGES;
+            default -> app = App.SETTINGS;
+        }
+    }
+
     @Override
     public boolean mouseReleased(MouseButtonEvent e) {
         blast.release(localX(e.x()) - SX, localY(e.y()) - SY);
         return true;
-    }
-
-    private static boolean hit(float x, float y, int ix, int iy) {
-        return x >= ix && x <= ix + 36 && y >= iy && y <= iy + 36;
     }
 }
