@@ -15,7 +15,7 @@ final class ChessGame {
     static final int[][] KN = {{2, 1}, {2, -1}, {-2, 1}, {-2, -1}, {1, 2}, {1, -2}, {-1, 2}, {-1, -2}};
 
     final String opponent;   // null = computer
-    final boolean meWhite;   // side the human plays
+    boolean meWhite;         // side the human plays
     private final int[] b;   // index = rank*8+file, rank 0 = white's first rank; +white, -black; 1P 2N 3B 4R 5Q 6K
     private boolean whiteTurn = true, wK = true, wQ = true, bK = true, bQ = true;
     private int ep = -1, sel = -1, lastFrom = -1, lastTo = -1;
@@ -25,14 +25,39 @@ final class ChessGame {
     private float aiTimer;
     private final Random rnd = new Random();
 
+    private boolean rematchSent, rematchIn;
+
     ChessGame(String opponent, boolean meWhite) {
         this.opponent = opponent;
-        this.meWhite = meWhite;
         this.b = new int[64];
+        reset(meWhite);
+    }
+
+    /** Fresh board in place (so screens holding this game keep working). */
+    void reset(boolean newMeWhite) {
+        meWhite = newMeWhite;
+        java.util.Arrays.fill(b, 0);
         int[] back = {4, 2, 3, 5, 6, 3, 2, 4};
         for (int f = 0; f < 8; f++) {
             b[f] = back[f]; b[8 + f] = 1; b[48 + f] = -1; b[56 + f] = -back[f];
         }
+        whiteTurn = true; wK = true; wQ = true; bK = true; bQ = true;
+        ep = -1; sel = -1; lastFrom = -1; lastTo = -1;
+        selMoves = new ArrayList<>();
+        over = false; status = ""; aiTimer = 0;
+        rematchSent = false; rematchIn = false;
+    }
+
+    private void requestRematch() {
+        if (rematchSent) return;
+        rematchSent = true;
+        PhoneNet.sendChess(opponent, "X");
+        if (rematchIn) reset(!meWhite);      // both want it: swap colours and go
+    }
+
+    void remoteRematch() {
+        rematchIn = true;
+        if (rematchSent) reset(!meWhite);
     }
 
     private ChessGame(ChessGame o) {
@@ -274,7 +299,10 @@ final class ChessGame {
     int buttons(float x, float y) {
         if (y < 154 || y > 170) return 0;
         if (x >= 4 && x <= 56) { resign(); return 1; }
-        if (opponent == null && x >= 62 && x <= 114) return 2;
+        if (x >= 62 && x <= 114) {
+            if (opponent == null) return 2;
+            if (over) { requestRematch(); return 1; }
+        }
         return 0;
     }
 
@@ -318,6 +346,12 @@ final class ChessGame {
         if (opponent == null) {
             PhoneScreen.box(g, 62, 154, 114, 170, 0xFF2A6E8E);
             PhoneScreen.ctr(g, "New game", 88, 158, 0xFFFFFFFF, 1f);
+        } else if (over) {
+            String t = rematchSent ? "Waiting..." : (rematchIn ? "Accept" : "Rematch");
+            PhoneScreen.box(g, 62, 154, 114, 170, 0xFF2A6E8E);
+            PhoneScreen.ctr(g, t, 88, 158, 0xFFFFFFFF, 1f);
+            if (rematchIn && !rematchSent)
+                PhoneScreen.ctr(g, opponent + " wants a rematch", PhoneScreen.SW / 2, 192, 0xFF8FD6DD, 0.8f);
         }
         PhoneScreen.ctr(g, "Tap a piece, then a square", PhoneScreen.SW / 2, 180, 0xFF6F7585, 0.8f);
     }

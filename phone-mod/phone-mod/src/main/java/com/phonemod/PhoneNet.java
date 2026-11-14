@@ -83,13 +83,17 @@ final class PhoneNet {
             }
             case 'V' -> { ChessGame g = games.get(from); if (g != null) g.remoteMove(rest.substring(1)); }
             case 'R' -> { ChessGame g = games.get(from); if (g != null) g.remoteResign(); }
+            case 'X' -> {
+                ChessGame g = games.get(from);
+                if (g != null) { g.remoteRematch(); notify("[Phone] " + from + " wants a rematch"); }
+            }
             default -> { }
         }
     }
 
     private static void notify(String s) {
         Minecraft mc = Minecraft.getInstance();
-       if (mc.player != null) mc.player.sendSystemMessage(Component.literal(s));
+        if (mc.player != null) mc.player.sendSystemMessage(Component.literal(s));
     }
 
     // ---------- sending ----------
