@@ -30,9 +30,14 @@ abstract class NetGame extends Game implements PhoneNet.NetPlay {
         newBoard();
     }
     @Override void reset() { startGame(true); }
-    void flip() { firstTurn = !firstTurn; }
+    void flip() { firstTurn = !firstTurn; if (!over) Sfx.play('k'); }
     void sendMove(String body) { if (opponent != null) PhoneNet.sendGame(opponent, gid, "V" + body); }
-    void finish(String s) { over = true; status = s; }
+    void finish(String s) {
+        over = true; status = s;
+        boolean won = s.startsWith("You win") || s.contains("you win");
+        if (won) Scores.add(id + "_wins", 1);
+        Sfx.share(won ? 'w' : 'x');
+    }
     String whoWon(boolean firstWon) { return firstWon == meFirst ? "You win!" : (opponent == null ? "Computer wins" : opponent + " wins!"); }
 
     @Override void update(float dt) {
@@ -56,6 +61,7 @@ abstract class NetGame extends Game implements PhoneNet.NetPlay {
     @Override void draw(GuiGraphicsExtractor g) {
         box(g, 0, 0, W, H, 0xFF1B1D24);
         txt(g, opponent == null ? title + " vs Computer" : title + " vs " + opponent, 5, 5, WHITE);
+        left(g, "Wins " + Scores.get(id + "_wins"), 88, 17, GRAY, 0.75f);
         String t = over ? status : (myTurn() ? "Your move" : (opponent == null ? "Thinking..." : "Waiting for " + opponent));
         txt(g, t, 5, 16, over ? 0xFFFFAA00 : GRAY);
         drawBoard(g);

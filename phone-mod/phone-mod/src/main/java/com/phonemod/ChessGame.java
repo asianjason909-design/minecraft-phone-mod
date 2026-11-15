@@ -220,6 +220,7 @@ final class ChessGame extends Game implements PhoneNet.NetPlay {
         lastFrom = m & 63; lastTo = (m >> 6) & 63;
         sel = -1; selMoves.clear(); aiTimer = 0;
         updateStatus();
+        if (over) { boolean won = status.contains(meWhite ? "White wins" : "Black wins"); if (won) Scores.add("chess_wins", 1); Sfx.share(won ? 'w' : 'x'); } else Sfx.play('k');
         if (local && opponent != null) PhoneNet.sendGame(opponent, 'C', "V" + name(lastFrom) + name(lastTo));
     }
 
@@ -231,7 +232,7 @@ final class ChessGame extends Game implements PhoneNet.NetPlay {
         } catch (RuntimeException ignored) { }
     }
 
-    @Override public void remoteResign() { if (!over) { over = true; status = "Opponent resigned - you win!"; } }
+    @Override public void remoteResign() { if (!over) { over = true; status = "Opponent resigned - you win!"; Scores.add("chess_wins", 1); Sfx.share('w'); } }
 
     private void resign() {
         if (over) return;
@@ -282,6 +283,12 @@ final class ChessGame extends Game implements PhoneNet.NetPlay {
         play(bm, false);
     }
 
+    String dump() {
+        StringBuilder sb = new StringBuilder();
+        for (int r = 7; r >= 0; r--) { for (int f = 0; f < 8; f++) { int v = b[r * 8 + f]; sb.append(v == 0 ? '.' : (v > 0 ? "PNBRQK" : "pnbrqk").charAt(Math.abs(v) - 1)); } sb.append('\n'); }
+        sb.append("whiteTurn=").append(whiteTurn).append(" ep=").append(ep).append(" over=").append(over).append(" half=").append(half).append(" legal=").append(legal().size()).append(" meWhite=").append(meWhite).append(" sel=").append(sel);
+        return sb.toString();
+    }
     boolean canMove() { return myTurn(); }
     boolean over() { return over; }
     String statusText() { return status; }

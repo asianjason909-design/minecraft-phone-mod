@@ -39,7 +39,7 @@ final class MessagesApp {
             PhoneScreen.box(g, 4, y, 114, y + 20, 0xFF222633);
             PhoneScreen.txt(g, name, 8, y + 3, 0xFFFFFFFF);
             List<PhoneNet.Msg> t = PhoneNet.threads.get(name);
-            String last = (t == null || t.isEmpty()) ? "" : t.get(t.size() - 1).text();
+            String last = (t == null || t.isEmpty()) ? "" : (t.get(t.size() - 1).photo() != null ? "[photo]" : t.get(t.size() - 1).text());
             if (last.length() > 28) last = last.substring(0, 28) + "...";
             PhoneScreen.left(g, last, 8, y + 12, 0xFF8A8F9E, 0.7f);
             int un = PhoneNet.unread.getOrDefault(name, 0);
@@ -61,6 +61,14 @@ final class MessagesApp {
         int y = 158;
         for (int i = list.size() - 1; i >= 0 && y > 26; i--) {
             PhoneNet.Msg m = list.get(i);
+            if (m.photo() != null) {
+                int pbw = 72, pbh = 88;
+                y -= pbh + 3;
+                int px = m.mine() ? PhoneScreen.SW - 4 - pbw : 4;
+                PhoneScreen.box(g, px, y, px + pbw, y + pbh, m.mine() ? 0xFF2E86DE : 0xFF3A3F4F);
+                m.photo().draw(g, px + 4, y + 4, 2);
+                continue;
+            }
             List<String> lines = wrap(m.text(), 78);
             int w = 0;
             for (String l : lines) w = Math.max(w, font.width(l));
@@ -100,6 +108,7 @@ final class MessagesApp {
 
     // ---------- input ----------
     void click(float x, float y) {
+        Sfx.play('c');
         if (open == null) {
             if (x >= 78 && x <= 114 && y >= 4 && y <= 19) {
                 scanCount = PhoneNet.scan();

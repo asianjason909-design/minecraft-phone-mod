@@ -1,6 +1,5 @@
 package com.phonemod;
 
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.Screen;
@@ -10,8 +9,6 @@ import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -32,28 +29,7 @@ public class PhoneScreen extends Screen {
         {0xFF1B2A49, 0xFF7A3FA0}, {0xFFFF9966, 0xFF5B247A}, {0xFF2193B0, 0xFF0B2A4A},
         {0xFF56AB2F, 0xFF0F3D1F}, {0xFFFF9A9E, 0xFFA18CD1}, {0xFFF12711, 0xFF2B0A0A}
     };
-    private static int wallpaper = 0;
-    private static final List<String> order = new ArrayList<>();
-    static { loadConfig(); }
-
-    private static Path cfg() { return FabricLoader.getInstance().getConfigDir().resolve("phonemod.txt"); }
-
-    private static void loadConfig() {
-        List<String> saved = new ArrayList<>();
-        try {
-            List<String> ls = Files.readAllLines(cfg());
-            wallpaper = Math.floorMod(Integer.parseInt(ls.get(0).trim()), WALLS.length);
-            if (ls.size() > 1) for (String s : ls.get(1).split(",")) if (!s.isBlank()) saved.add(s.trim());
-        } catch (Exception ignored) { }
-        List<String> valid = Arrays.asList(Games.DEFAULT_ORDER);
-        order.clear();
-        for (String s : saved) if (valid.contains(s) && !order.contains(s)) order.add(s);
-        for (String s : valid) if (!order.contains(s)) order.add(s);
-    }
-
-    private static void saveConfig() {
-        try { Files.writeString(cfg(), wallpaper + "\n" + String.join(",", order)); } catch (Exception ignored) { }
-    }
+    private static final List<String> order = Settings.order;
 
     // ---------- state ----------
     private App app = App.HOME;
@@ -73,7 +49,7 @@ public class PhoneScreen extends Screen {
     private boolean gamePress;
     private Mode mode = Mode.NONE;
 
-    public PhoneScreen() { super(Component.literal("Phone")); }
+    public PhoneScreen() { super(Component.literal("Phone")); Sfx.share('o'); }
 
     @Override public boolean isPauseScreen() { return false; }
 
@@ -124,8 +100,12 @@ public class PhoneScreen extends Screen {
         return 1f + c3 * u * u * u + c1 * u * u;          // ease-out-back
     }
 
+    private void leaveGame() { if (app == App.GAME && game != null) game.saveStats(); }
+
     private void startClose() {
         if (closeNs >= 0) return;
+        leaveGame();
+        Sfx.play('c');
         closeFrom = Math.min(1f, progress(System.nanoTime()));
         closeNs = System.nanoTime();
     }
@@ -230,7 +210,7 @@ public class PhoneScreen extends Screen {
     }
 
     private void drawHome(GuiGraphicsExtractor g) {
-        g.fillGradient(SX, SY, SX + SW, SY + SH, WALLS[wallpaper][0], WALLS[wallpaper][1]);
+        g.fillGradient(SX, SY, SX + SW, SY + SH, WALLS[Settings.wallpaper][0], WALLS[Settings.wallpaper][1]);
         LocalTime t = LocalTime.now();
         ctr(g, String.format("%02d:%02d", t.getHour(), t.getMinute()), SW / 2, 14, 0xFFFFFFFF, 2.5f);
 
@@ -297,27 +277,38 @@ public class PhoneScreen extends Screen {
         }
     }
 
+    private static int swatchX(int i) { return 4 + (i % 3) * 38; }
+    private static int swatchY(int i) { return 22 + (i / 3) * 50; }
+
     private void drawSettings(GuiGraphicsExtractor g) {
         g.fillGradient(SX, SY, SX + SW, SY + SH, 0xFF14161C, 0xFF0B0C10);
-        ctr(g, "Wallpaper", SW / 2, 10, 0xFFFFFFFF, 1.3f);
+        ctr(g, "Wallpaper", SW / 2, 7, 0xFFFFFFFF, 1.2f);
         for (int i = 0; i < WALLS.length; i++) {
-            int x = 4 + (i % 3) * 38, y = 34 + (i / 3) * 66;
-            if (i == wallpaper) box(g, x - 2, y - 2, x + 36, y + 56, 0xFFFFFFFF);
-            g.fillGradient(SX + x, SY + y, SX + x + 34, SY + y + 54, WALLS[i][0], WALLS[i][1]);
-            ctr(g, WALL_NAMES[i], x + 17, y + 58, 0xFFFFFFFF, 0.75f);
+            int x = swatchX(i), y = swatchY(i);
+            if (i == Settings.wallpaper) box(g, x - 2, y - 2, x + 36, y + 42, 0xFFFFFFFF);
+            g.fillGradient(SX + x, SY + y, SX + x + 34, SY + y + 40, WALLS[i][0], WALLS[i][1]);
+            ctr(g, WALL_NAMES[i], x + 17, y + 42, 0xFFFFFFFF, 0.7f);
         }
-        ctr(g, "Tap one to apply it", SW / 2, 172, 0xFFAAAAAA, 0.8f);
-        box(g, 4, 186, 114, 202, 0xFF37474F);
-        ctr(g, "Reset icon layout", SW / 2, 190, 0xFFFFFFFF, 0.9f);
+        box(g, 4, 126, 114, 142, Settings.sound ? 0xFF2E7D32 : 0xFF555555);
+        ctr(g, "Sounds: " + (Settings.sound ? "ON" : "OFF"), SW / 2, 130, 0xFFFFFFFF, 0.95f);
+        box(g, 4, 146, 114, 162, Settings.nearby ? 0xFF2E7D32 : 0xFF555555);
+        ctr(g, "Nearby sharing: " + (Settings.nearby ? "ON" : "OFF"), SW / 2, 150, 0xFFFFFFFF, 0.95f);
+        box(g, 4, 166, 114, 182, 0xFF37474F);
+        ctr(g, "Reset icon layout", SW / 2, 170, 0xFFFFFFFF, 0.95f);
+        ctr(g, "Nearby = players with the mod", SW / 2, 190, 0xFF8A8F9E, 0.7f);
+        ctr(g, "hear your music and key sounds", SW / 2, 199, 0xFF8A8F9E, 0.7f);
     }
 
     // ---------- input ----------
     private void goHome() {
+        leaveGame();
+        Sfx.play('c');
         if (game != null) { game.down = false; game.keys.clear(); }
         app = App.HOME; homeDown = false; mode = Mode.NONE; pIdx = -1;
     }
 
     private void openApp(String id) {
+        Sfx.play('c');
         if (id.equals("messages")) { app = App.MESSAGES; return; }
         if (id.equals("settings")) { app = App.SETTINGS; return; }
         Game gm = Games.byId(id);
@@ -379,13 +370,12 @@ public class PhoneScreen extends Screen {
                 }
             }
             case SETTINGS -> {
-                for (int i = 0; i < WALLS.length; i++) {
-                    int sx = 4 + (i % 3) * 38, sy = 34 + (i / 3) * 66;
-                    if (x >= sx && x <= sx + 34 && y >= sy && y <= sy + 54) { wallpaper = i; saveConfig(); }
-                }
-                if (x >= 4 && x <= 114 && y >= 186 && y <= 202) {
-                    order.clear(); order.addAll(Arrays.asList(Games.DEFAULT_ORDER)); page = 0; saveConfig();
-                }
+                Sfx.play('c');
+                for (int i = 0; i < WALLS.length; i++)
+                    if (x >= swatchX(i) && x <= swatchX(i) + 34 && y >= swatchY(i) && y <= swatchY(i) + 40) { Settings.wallpaper = i; Settings.save(); }
+                if (x >= 4 && x <= 114 && y >= 126 && y <= 142) { Settings.sound = !Settings.sound; Settings.save(); }
+                if (x >= 4 && x <= 114 && y >= 146 && y <= 162) { Settings.nearby = !Settings.nearby; Settings.save(); }
+                if (x >= 4 && x <= 114 && y >= 166 && y <= 182) { Settings.resetOrder(); page = 0; }
             }
         }
         return true;
@@ -411,7 +401,7 @@ public class PhoneScreen extends Screen {
             if (pIdx >= 0 && pIdx < order.size() && target != pIdx) {
                 String id = order.remove(pIdx);
                 order.add(target, id);
-                saveConfig();
+                Settings.save();
             }
         } else if (pIdx >= 0 && pIdx < order.size() && Math.hypot(x - pdx, y - pdy) < 8) {
             int idx = pIdx;

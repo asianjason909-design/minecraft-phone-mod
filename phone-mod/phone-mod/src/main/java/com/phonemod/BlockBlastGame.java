@@ -33,6 +33,11 @@ final class BlockBlastGame {
 
     BlockBlastGame() { reset(); }
 
+    int getBest() { return best; }
+    void setBest(int b) { best = b; }
+    int getScore() { return score; }
+    boolean isOver() { return over; }
+
     void reset() {
         for (int[] row : grid) Arrays.fill(row, 0);
         score = 0; over = false; drag = -1;

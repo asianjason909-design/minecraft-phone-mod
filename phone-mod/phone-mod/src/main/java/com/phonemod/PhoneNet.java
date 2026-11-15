@@ -8,14 +8,17 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
 
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
- * Phone messaging and duels over normal /msg whispers. Every phone whisper starts with two invisible
- * characters (MARK). Whispers that start with MARK are hidden from chat and handled here.
- * Only players who answer a "ping" (i.e. have this mod) ever appear as contacts.
+ * Phone messaging, photos, duels, shared sounds and music over normal /msg whispers (one server only).
+ * Every phone whisper starts with two invisible characters (MARK). Whispers that start with MARK are
+ * hidden from chat and handled here. Only players who answer a "ping" (i.e. have this mod) become contacts.
+ * Servers kick for chat spam above about 1 message per second, so the outbox sends at most one every 1.1 s.
  */
 final class PhoneNet {
     static final String MARK = "\u2062\u2063";
+    static final int CHUNK = 214;   // photo characters per whisper (6 whispers per photo)
 
     /** A two-player game that can receive moves from a friend. */
     interface NetPlay {
@@ -24,7 +27,9 @@ final class PhoneNet {
         void remoteRematch();
     }
 
-    record Msg(boolean mine, String text) { }
+    record Msg(boolean mine, String text, Photo photo) {
+        Msg(boolean mine, String text) { this(mine, text, null); }
+    }
 
     // games you can duel in: id char, full name, short button label
     static final char[] GAME_IDS = {'C', 'T', '4', 'K'};
@@ -36,8 +41,9 @@ final class PhoneNet {
     static final Map<String, Integer> unread = new HashMap<>();
     static final Map<String, NetPlay> games = new HashMap<>();          // key(opponent, gameId)
     static final Set<String> invitesIn = new HashSet<>(), invitesOut = new HashSet<>();
+    private static final Map<String, String[]> photoParts = new HashMap<>();
 
-    private static final Deque<String> outbox = new ArrayDeque<>();
+    private static final Deque<Supplier<String>> outbox = new ArrayDeque<>();
     private static long lastSend;
 
     static String key(String opponent, char gid) { return opponent + "|" + gid; }
@@ -46,6 +52,8 @@ final class PhoneNet {
         ClientReceiveMessageEvents.ALLOW_CHAT.register((message, signed, sender, params, ts) -> !handle(message));
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> !handle(message));
         ClientTickEvents.END_CLIENT_TICK.register(PhoneNet::tick);
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> MusicEngine.tick(System.nanoTime()));
+        Scores.installExitHook();
     }
 
     private static String str(Object o) { return o instanceof Component c ? c.getString() : String.valueOf(o); }
@@ -76,10 +84,33 @@ final class PhoneNet {
                 threads.computeIfAbsent(from, k -> new ArrayList<>()).add(new Msg(false, rest));
                 unread.merge(from, 1, Integer::sum);
                 notify("[Phone] " + from + ": " + rest);
+                Sfx.play('p');
             }
+            case 'I' -> { contacts.add(from); photoPart(from, rest); }
             case 'G' -> game(from, rest);
+            case 'Z' -> { contacts.add(from); MusicEngine.onRemote(from, rest); }
+            case 'F' -> { contacts.add(from); if (!rest.isEmpty()) Sfx.remote(from, rest.charAt(0)); }
             default -> { }
         }
+    }
+
+    private static void photoPart(String from, String rest) {
+        if (rest.length() < 4) return;
+        int idx = MusicEngine.B64.indexOf(rest.charAt(1)), cnt = MusicEngine.B64.indexOf(rest.charAt(2));
+        if (idx < 0 || cnt <= 0 || cnt > 12 || idx >= cnt) return;
+        String k = from + "#" + rest.charAt(0);
+        if (photoParts.size() > 20) photoParts.clear();
+        String[] parts = photoParts.computeIfAbsent(k, x -> new String[cnt]);
+        if (parts.length != cnt) return;
+        parts[idx] = rest.substring(3);
+        for (String p : parts) if (p == null) return;
+        photoParts.remove(k);
+        Photo ph = Photo.decode(String.join("", parts));
+        if (ph == null) return;
+        threads.computeIfAbsent(from, x -> new ArrayList<>()).add(new Msg(false, "", ph));
+        unread.merge(from, 1, Integer::sum);
+        notify("[Phone] " + from + " sent you a photo");
+        Sfx.play('p');
     }
 
     private static String gameName(char gid) {
@@ -93,11 +124,11 @@ final class PhoneNet {
         String payload = rest.substring(2), k = key(from, gid);
         contacts.add(from);
         switch (sub) {
-            case 'N' -> { invitesIn.add(k); notify("[Phone] " + from + " challenged you to " + gameName(gid)); }
+            case 'N' -> { invitesIn.add(k); notify("[Phone] " + from + " challenged you to " + gameName(gid)); Sfx.play('p'); }
             case 'A' -> {
                 if (invitesOut.remove(k)) {
                     Game g = Games.create(gid, from, true);
-                    if (g instanceof NetPlay np) { games.put(k, np); notify("[Phone] " + from + " accepted your " + gameName(gid) + " challenge"); }
+                    if (g instanceof NetPlay np) { games.put(k, np); notify("[Phone] " + from + " accepted your " + gameName(gid) + " challenge"); Sfx.play('p'); }
                 }
             }
             case 'V' -> { NetPlay g = games.get(k); if (g != null) g.remoteMove(payload); }
@@ -116,13 +147,28 @@ final class PhoneNet {
     }
 
     // ---------- sending ----------
-    static void enqueue(String to, char type, String text) {
-        outbox.add("msg " + to + " " + MARK + type + text);
-    }
+    static String cmd(String to, char type, String text) { return "msg " + to + " " + MARK + type + text; }
+
+    static void enqueue(String to, char type, String text) { final String c = cmd(to, type, text); outbox.add(() -> c); }
+
+    /** a whisper that is built at the moment it is actually sent (return null to skip it) */
+    static void enqueueLazy(Supplier<String> s) { outbox.add(s); }
+
+    static int queueSize() { return outbox.size(); }
 
     static void sendText(String to, String text) {
         threads.computeIfAbsent(to, k -> new ArrayList<>()).add(new Msg(true, text));
         enqueue(to, 'M', text);
+    }
+
+    /** sends a photo in 6 whispers; the receiver rebuilds it when all have arrived */
+    static void sendPhoto(String to, Photo p) {
+        threads.computeIfAbsent(to, k -> new ArrayList<>()).add(new Msg(true, "", p));
+        String data = p.encode();
+        int cnt = (data.length() + CHUNK - 1) / CHUNK;
+        char id = MusicEngine.B64.charAt((int) (Math.random() * 64));
+        for (int i = 0; i < cnt; i++)
+            enqueue(to, 'I', "" + id + MusicEngine.B64.charAt(i) + MusicEngine.B64.charAt(cnt) + data.substring(i * CHUNK, Math.min(data.length(), (i + 1) * CHUNK)));
     }
 
     /** body examples: "N" invite, "A" accept, "V..." a move, "R" resign, "X" rematch */
@@ -150,8 +196,17 @@ final class PhoneNet {
     private static void tick(Minecraft mc) {
         if (outbox.isEmpty() || mc.getConnection() == null) return;
         long now = System.currentTimeMillis();
-        if (now - lastSend < 700) return;
-        lastSend = now;
-        mc.getConnection().sendCommand(outbox.poll());
+        if (now - lastSend < 1100) return;
+        while (!outbox.isEmpty()) {
+            String c = outbox.poll().get();
+            if (c != null) { lastSend = now; mc.getConnection().sendCommand(c); return; }
+        }
+    }
+
+    /** tests only: evaluate and clear the queue */
+    static List<String> drainCommands() {
+        List<String> out = new ArrayList<>();
+        while (!outbox.isEmpty()) { String c = outbox.poll().get(); if (c != null) out.add(c); }
+        return out;
     }
 }

@@ -18,6 +18,11 @@ final class SnakeGame {
 
     SnakeGame() { reset(); }
 
+    int getBest() { return best; }
+    void setBest(int b) { best = b; }
+    int getScore() { return score; }
+    boolean isDead() { return dead; }
+
     void reset() {
         body.clear();
         body.addLast(new int[]{5, 9});

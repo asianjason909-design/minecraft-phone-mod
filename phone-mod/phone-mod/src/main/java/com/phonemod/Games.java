@@ -7,9 +7,20 @@ import java.util.List;
 
 final class BlastApp extends Game {
     private final BlockBlastGame inner = new BlockBlastGame();
-    BlastApp() { super("blast", "Block Blast", "BB", 0xFF263056); }
-    @Override void reset() { inner.reset(); }
-    @Override void draw(GuiGraphicsExtractor g) { inner.draw(g, mx, my); }
+    private int lastScore, savedBest;
+    private boolean wasOver;
+
+    BlastApp() { super("blast", "Block Blast", "BB", 0xFF263056); inner.setBest(Scores.get(id)); savedBest = inner.getBest(); }
+    @Override void reset() { inner.reset(); lastScore = 0; wasOver = false; }
+    @Override void saveStats() { int b = inner.getBest(); if (b > savedBest) { savedBest = b; Scores.raise(id, b); } }
+    @Override void draw(GuiGraphicsExtractor g) {
+        inner.draw(g, mx, my);
+        int s = inner.getScore();
+        if (s > lastScore) Sfx.play(s - lastScore >= 20 ? 'l' : 'k');
+        lastScore = s;
+        if (inner.isOver() && !wasOver) { Sfx.share('x'); saveStats(); }
+        wasOver = inner.isOver();
+    }
     @Override void press(float x, float y) { inner.press(x, y); }
     @Override void release(float x, float y) { inner.release(x, y); }
     @Override void icon(GuiGraphicsExtractor g, int x, int y) { PhoneScreen.builtinIcon(g, 0, x, y); }
@@ -17,20 +28,42 @@ final class BlastApp extends Game {
 
 final class FlappyApp extends Game {
     private final FlappyGame inner = new FlappyGame();
-    FlappyApp() { super("flappy", "Flappy Bird", "FB", 0xFF70C5CE); }
-    @Override void reset() { inner.reset(); }
-    @Override void update(float dt) { inner.update(dt); }
+    private int lastScore, savedBest;
+    private boolean wasDead;
+
+    FlappyApp() { super("flappy", "Flappy Bird", "FB", 0xFF70C5CE); inner.setBest(Scores.get(id)); savedBest = inner.getBest(); }
+    @Override void reset() { inner.reset(); lastScore = 0; wasDead = false; }
+    @Override void saveStats() { int b = inner.getBest(); if (b > savedBest) { savedBest = b; Scores.raise(id, b); } }
+    @Override void update(float dt) {
+        inner.update(dt);
+        int s = inner.getScore();
+        if (s > lastScore) Sfx.play('p');
+        lastScore = s;
+        if (inner.isDead() && !wasDead) { Sfx.share('x'); saveStats(); }
+        wasDead = inner.isDead();
+    }
     @Override void draw(GuiGraphicsExtractor g) { inner.draw(g); }
-    @Override void press(float x, float y) { inner.flap(); }
-    @Override boolean key(int k) { if (k == K_SPACE || k == K_UP || k == K_W) { inner.flap(); return true; } return false; }
+    @Override void press(float x, float y) { Sfx.play('j'); inner.flap(); }
+    @Override boolean key(int k) { if (k == K_SPACE || k == K_UP || k == K_W) { Sfx.play('j'); inner.flap(); return true; } return false; }
     @Override void icon(GuiGraphicsExtractor g, int x, int y) { PhoneScreen.builtinIcon(g, 1, x, y); }
 }
 
 final class SnakeApp extends Game {
     private final SnakeGame inner = new SnakeGame();
-    SnakeApp() { super("snake", "Snake", "SN", 0xFF2E7D32); }
-    @Override void reset() { inner.reset(); }
-    @Override void update(float dt) { inner.update(dt); }
+    private int lastScore, savedBest;
+    private boolean wasDead;
+
+    SnakeApp() { super("snake", "Snake", "SN", 0xFF2E7D32); inner.setBest(Scores.get(id)); savedBest = inner.getBest(); }
+    @Override void reset() { inner.reset(); lastScore = 0; wasDead = false; }
+    @Override void saveStats() { int b = inner.getBest(); if (b > savedBest) { savedBest = b; Scores.raise(id, b); } }
+    @Override void update(float dt) {
+        inner.update(dt);
+        int s = inner.getScore();
+        if (s > lastScore) Sfx.play('p');
+        lastScore = s;
+        if (inner.isDead() && !wasDead) { Sfx.share('x'); saveStats(); }
+        wasDead = inner.isDead();
+    }
     @Override void draw(GuiGraphicsExtractor g) { inner.draw(g); }
     @Override void press(float x, float y) { inner.press(x, y); }
     @Override boolean key(int k) { return inner.key(k); }
@@ -40,13 +73,15 @@ final class SnakeApp extends Game {
 /** Every game on the phone, in default home-screen order. */
 final class Games {
     static final String[] DEFAULT_ORDER = {
-        "messages", "blast", "flappy", "snake", "chess", "tictactoe", "connect4", "checkers", "tetris",
-        "2048", "dino", "pong", "mines", "brick", "doodle", "invaders", "galaga", "pac",
-        "asteroids", "rhythm", "crossy", "sudoku", "mahjong", "wordle", "unblock", "golf", "heli",
+        "messages", "camera", "music", "blast", "flappy", "snake", "chess", "tictactoe", "connect4",
+        "checkers", "tetris", "2048", "dino", "pong", "mines", "brick", "doodle", "invaders", "galaga",
+        "pac", "asteroids", "rhythm", "crossy", "sudoku", "mahjong", "wordle", "unblock", "golf", "heli",
         "race", "paddle", "settings"};
     static final List<Game> ALL = new ArrayList<>();
 
     static {
+        ALL.add(new CameraApp());
+        ALL.add(new MusicApp());
         ALL.add(new BlastApp().lbl("Blast"));
         ALL.add(new FlappyApp().lbl("Flappy"));
         ALL.add(new SnakeApp());

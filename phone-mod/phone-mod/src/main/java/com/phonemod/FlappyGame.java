@@ -18,6 +18,11 @@ final class FlappyGame {
 
     FlappyGame() { reset(); }
 
+    int getBest() { return best; }
+    void setBest(int b) { best = b; }
+    int getScore() { return score; }
+    boolean isDead() { return dead; }
+
     void reset() {
         pipes.clear();
         by = 90; vy = 0; spawn = 1.2f; score = 0; deadFor = 0;

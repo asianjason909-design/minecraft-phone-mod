@@ -12,7 +12,7 @@ final class DinoApp extends Arcade {
     boolean duck;
     final List<float[]> obs = new ArrayList<>();   // x, w, h, bird(0/1)
 
-    DinoApp() { super("dino", "Dino Run", "DINO", 0xFF6D6D6D); reset(); }
+    DinoApp() { super("dino", "Dino Run", "DINO", 0xFF6D6D6D); scoreSfx = false; reset(); }
 
     @Override void reset() { y = 0; vy = 0; speed = 90; dist = 0; score = 0; over = false; spawn = 1f; obs.clear(); }
     @Override void tap(float x, float yy) { jump(); }
@@ -20,7 +20,7 @@ final class DinoApp extends Arcade {
         if (k == K_SPACE || k == K_UP || k == K_W) { if (over) reset(); else jump(); return true; }
         return false;
     }
-    private void jump() { if (y == 0) vy = 250; }
+    private void jump() { if (y == 0) { vy = 250; Sfx.play('j'); } }
 
     @Override void step(float dt) {
         duck = goDown() && y == 0;
@@ -131,7 +131,7 @@ final class BrickApp extends Arcade {
     private int left() { int n = 0; for (boolean[] r : bricks) for (boolean b : r) if (b) n++; return n; }
 
     @Override void tap(float x, float y) {
-        if (!launched) { launched = true; float sp = 110 + level * 10; vx = rnd(-40, 40); vy = -sp; }
+        if (!launched) { launched = true; Sfx.play('s'); float sp = 110 + level * 10; vx = rnd(-40, 40); vy = -sp; }
     }
     @Override boolean key(int k) { if (k == K_SPACE) { tap(0, 0); return true; } return false; }
 
@@ -216,7 +216,7 @@ final class HeliApp extends Arcade {
     final List<float[]> cols = new ArrayList<>();   // top, bottom, obstacleTop(-1 none), obstacleBottom
     float hy, hv, off, center, gap, dist;
 
-    HeliApp() { super("heli", "Helicopter", "HELI", 0xFF6A1B9A); reset(); }
+    HeliApp() { super("heli", "Helicopter", "HELI", 0xFF6A1B9A); scoreSfx = false; reset(); }
 
     @Override void reset() {
         score = 0; over = false; hy = 100; hv = 0; off = 0; dist = 0; center = 107; gap = 120; cols.clear();
@@ -272,7 +272,7 @@ final class RaceApp extends Arcade {
     float px, dist, spawn, speed;
     final List<float[]> cars = new ArrayList<>();   // x, y, color
 
-    RaceApp() { super("race", "Retro Race", "RACE", 0xFFC62828); reset(); }
+    RaceApp() { super("race", "Retro Race", "RACE", 0xFFC62828); scoreSfx = false; reset(); }
 
     @Override void reset() { score = 0; over = false; px = W / 2f; dist = 0; spawn = 0.6f; speed = 100; cars.clear(); }
 
@@ -313,7 +313,7 @@ final class DoodleApp extends Arcade {
     float px, py, vy, climbed;
     final List<float[]> plats = new ArrayList<>();   // x, y, moving(0/1), dir
 
-    DoodleApp() { super("doodle", "Doodle Jump", "DJ", 0xFF7CB342); reset(); }
+    DoodleApp() { super("doodle", "Doodle Jump", "DJ", 0xFF7CB342); scoreSfx = false; reset(); }
 
     @Override void reset() {
         score = 0; over = false; px = W / 2f; py = 180; vy = -300; climbed = 0; plats.clear();
@@ -329,7 +329,7 @@ final class DoodleApp extends Arcade {
         vy += 520 * dt; py += vy * dt;
         float feet = py + 12;
         if (vy > 0) for (float[] p : plats)
-            if (prevFeet <= p[1] + 1 && feet >= p[1] && px + 5 > p[0] && px - 5 < p[0] + 26) { vy = -300; break; }
+            if (prevFeet <= p[1] + 1 && feet >= p[1] && px + 5 > p[0] && px - 5 < p[0] + 26) { vy = -300; Sfx.play('j'); break; }
         if (py < 90) { float d = 90 - py; py = 90; climbed += d; for (float[] p : plats) p[1] += d; }
         score = (int) (climbed / 5);
         for (float[] p : plats) if (p[2] == 1) { p[0] += p[3] * 30 * dt; if (p[0] < 0) { p[0] = 0; p[3] = 1; } if (p[0] > W - 26) { p[0] = W - 26; p[3] = -1; } }

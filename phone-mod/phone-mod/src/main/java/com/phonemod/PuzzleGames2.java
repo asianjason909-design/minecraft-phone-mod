@@ -13,6 +13,7 @@ final class MahjongApp extends Game {
     final List<T> tiles = new ArrayList<>();
     T sel;
     String msg = "";
+    boolean stuck;
 
     MahjongApp() { super("mahjong", "Mahjong", "MJ", 0xFF00897B); reset(); }
 
@@ -23,15 +24,43 @@ final class MahjongApp extends Game {
         deal();
     }
     private void add(int c, int r, int l) { T t = new T(); t.c = c; t.r = r; t.layer = l; tiles.add(t); }
+    /** Give the remaining tiles symbols in matching pairs, built by simulating a full clear so a solution always exists. */
     private void deal() {
-        List<Integer> syms = new ArrayList<>();
-        int live = 0; for (T t : tiles) if (!t.gone) live++;
-        for (int i = 0; i < live / 2; i++) { syms.add(i % SYMS.length()); syms.add(i % SYMS.length()); }
-        for (int attempt = 0; attempt < 60; attempt++) {
-            java.util.Collections.shuffle(syms, RND);
-            int k = 0; for (T t : tiles) if (!t.gone) t.sym = syms.get(k++);
-            if (live == 0 || hasMove()) break;
+        List<T> live = new ArrayList<>();
+        for (T t : tiles) if (!t.gone) live.add(t);
+        if (live.isEmpty()) return;
+        for (int attempt = 0; attempt < 300; attempt++) {
+            boolean[] removed = new boolean[live.size()];
+            int[] sym = new int[live.size()];
+            int left = live.size(), pair = 0;
+            boolean ok = true;
+            while (left > 0) {
+                List<Integer> free = new ArrayList<>();
+                for (int i = 0; i < live.size(); i++) if (!removed[i] && freeIn(live, removed, i)) free.add(i);
+                if (free.size() < 2) { ok = false; break; }
+                java.util.Collections.shuffle(free, RND);
+                int a = free.get(0), b = free.get(1);
+                sym[a] = pair % SYMS.length(); sym[b] = pair % SYMS.length(); pair++;
+                removed[a] = true; removed[b] = true; left -= 2;
+            }
+            if (ok) { for (int i = 0; i < live.size(); i++) live.get(i).sym = sym[i]; stuck = false; return; }
         }
+        stuck = true;   // these tiles can never all be cleared (for example the last two are stacked)
+        List<Integer> syms = new ArrayList<>();
+        for (int i = 0; i < live.size() / 2; i++) { syms.add(i % SYMS.length()); syms.add(i % SYMS.length()); }
+        java.util.Collections.shuffle(syms, RND);
+        for (int i = 0; i < live.size(); i++) live.get(i).sym = syms.get(i);
+    }
+    private static boolean freeIn(List<T> live, boolean[] removed, int i) {
+        T t = live.get(i);
+        boolean leftBlocked = false, rightBlocked = false;
+        for (int j = 0; j < live.size(); j++) {
+            if (removed[j] || j == i) continue;
+            T o = live.get(j);
+            if (t.layer == 0 && o.layer == 1 && o.c == t.c && o.r == t.r) return false;
+            if (o.layer == t.layer && o.r == t.r) { if (o.c == t.c - 1) leftBlocked = true; if (o.c == t.c + 1) rightBlocked = true; }
+        }
+        return !(leftBlocked && rightBlocked);
     }
     private T at(int c, int r, int l) { for (T t : tiles) if (!t.gone && t.c == c && t.r == r && t.layer == l) return t; return null; }
     private boolean free(T t) {
@@ -49,7 +78,7 @@ final class MahjongApp extends Game {
     float ty(T t) { return 40 + t.r * 22 - t.layer * 3; }
 
     @Override void press(float x, float y) {
-        if (in(x, y, 4, 160, 56, 176)) { deal(); sel = null; msg = "Shuffled"; return; }
+        if (in(x, y, 4, 160, 56, 176)) { deal(); sel = null; msg = stuck ? "Stuck - tap New" : "Shuffled"; return; }
         if (in(x, y, 62, 160, 114, 176)) { reset(); return; }
         T hit = null;
         for (int l = 1; l >= 0 && hit == null; l--)
@@ -60,7 +89,8 @@ final class MahjongApp extends Game {
         if (sel == hit) { sel = null; return; }
         if (sel != null && sel.sym == hit.sym) {
             sel.gone = true; hit.gone = true; sel = null;
-            if (cleared()) msg = "Cleared! Tap New";
+            Sfx.play('p');
+            if (cleared()) { msg = "Cleared! Tap New"; Scores.add("mahjong", 1); Sfx.share('w'); }
             else if (!hasMove()) msg = "No moves - shuffle!";
         } else sel = hit;
     }
@@ -68,7 +98,7 @@ final class MahjongApp extends Game {
     @Override void draw(GuiGraphicsExtractor g) {
         box(g, 0, 0, W, H, 0xFF0F3D2E);
         int left = 0; for (T t : tiles) if (!t.gone) left++;
-        txt(g, "Mahjong  Tiles " + left, 5, 6, WHITE);
+        txt(g, "Mahjong  Tiles " + left, 5, 6, WHITE); left(g, "Cleared " + Scores.get("mahjong"), 80, 16, GRAY, 0.7f);
         for (int l = 0; l <= 1; l++) for (T t : tiles) if (!t.gone && t.layer == l) {
             float x = tx(t), y = ty(t);
             boolean f = free(t);
@@ -124,8 +154,9 @@ final class WordleApp extends Game {
         guesses[n++] = cur;
         int[] sc = score(cur);
         for (int i = 0; i < 5; i++) keyState.merge(cur.charAt(i), sc[i] + 1, Math::max);
-        if (cur.equals(answer)) { won = true; msg = "You got it!"; }
-        else if (n >= 6) { lost = true; msg = "It was " + answer; }
+        Sfx.play('c');
+        if (cur.equals(answer)) { won = true; msg = "You got it!"; Scores.add("wordle", 1); Sfx.share('w'); }
+        else if (n >= 6) { lost = true; msg = "It was " + answer; Sfx.share('x'); }
         cur = "";
     }
     private float kx(int row, int i) {
@@ -145,7 +176,7 @@ final class WordleApp extends Game {
 
     @Override void draw(GuiGraphicsExtractor g) {
         box(g, 0, 0, W, H, 0xFF121213);
-        ctr(g, "WORDLE", W / 2, 6, WHITE, 1.3f);
+        ctr(g, "WORDLE", W / 2, 6, WHITE, 1.3f); left(g, "Wins " + Scores.get("wordle"), 5, 7, GRAY, 0.8f);
         for (int r = 0; r < 6; r++) {
             String gs = r < n ? guesses[r] : r == n ? cur : "";
             int[] sc = r < n ? score(gs) : null;
@@ -186,7 +217,7 @@ final class UnblockApp extends Game {
     float anchorX, anchorY;
     boolean solved;
 
-    UnblockApp() { super("unblock", "Unblock Puzzle", "UNB", 0xFFBF360C); resetOnOpen = false; load(0); }
+    UnblockApp() { super("unblock", "Unblock Puzzle", "UNB", 0xFFBF360C); resetOnOpen = false; load(Math.min(Scores.get("unblock"), LEVELS.length - 1)); }
 
     @Override void reset() { load(level); }
 
@@ -235,7 +266,8 @@ final class UnblockApp extends Game {
         if (cells != 0) { if (k.horiz) k.c += cells; else k.r += cells; moves++; }
         drag = -1;
         Car t = cars.get(0);
-        if (t.c + t.len == 6) solved = true;
+        if (cells != 0) Sfx.play('k');
+        if (t.c + t.len == 6 && !solved) { solved = true; Scores.raise("unblock", level + 1); Sfx.share('w'); }
     }
 
     @Override void draw(GuiGraphicsExtractor g) {

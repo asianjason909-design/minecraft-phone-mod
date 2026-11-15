@@ -18,7 +18,7 @@ final class InvadersApp extends Arcade {
     @Override void reset() { score = 0; lives = 3; level = 1; over = false; px = W / 2f; shots.clear(); wave(); }
     private void wave() { for (boolean[] r : alive) java.util.Arrays.fill(r, true); ox = 6; oy = 28; dir = 1; cool = 0; enemyCool = 1f; shots.clear(); }
     private int count() { int n = 0; for (boolean[] r : alive) for (boolean b : r) if (b) n++; return n; }
-    private void fire() { if (cool <= 0) { shots.add(new float[]{px, 190, -190}); cool = 0.4f; } }
+    private void fire() { if (cool <= 0) { shots.add(new float[]{px, 190, -190}); cool = 0.4f; Sfx.play('s'); } }
 
     @Override void tap(float x, float y) { fire(); }
     @Override boolean key(int k) { if (k == K_SPACE) { fire(); return true; } return false; }
@@ -397,7 +397,7 @@ final class CrossyApp extends Arcade {
     int pc, pr, maxRow;
     float cam, hop;
 
-    CrossyApp() { super("crossy", "Crossy Road", "XRD", 0xFF8BC34A); reset(); }
+    CrossyApp() { super("crossy", "Crossy Road", "XRD", 0xFF8BC34A); scoreSfx = false; reset(); }
 
     @Override void reset() {
         score = 0; over = false; rows.clear(); pc = 5; pr = 0; maxRow = 0; cam = 0; hop = 0;
@@ -421,7 +421,7 @@ final class CrossyApp extends Arcade {
         if (nc < 0 || nc >= COLS || nr < 0 || nr < (int) cam) return;
         while (rows.size() <= nr + 20) rows.add(makeRow(rows.size()));
         if (rows.get(nr).type == 0 && rows.get(nr).tree[nc]) return;
-        pc = nc; pr = nr; hop = 0.12f;
+        pc = nc; pr = nr; hop = 0.12f; Sfx.play('j');
         if (pr > maxRow) { maxRow = pr; score = maxRow; }
     }
     @Override boolean key(int k) {
@@ -477,7 +477,7 @@ final class RhythmApp extends Arcade {
     final List<float[]> obs = new ArrayList<>();   // x, w, h, type(0 spike,1 block)
     float lastX;
 
-    RhythmApp() { super("rhythm", "Rhythm Platformer", "RHY", 0xFFD81B60); reset(); }
+    RhythmApp() { super("rhythm", "Rhythm Platformer", "RHY", 0xFFD81B60); scoreSfx = false; reset(); }
 
     @Override void reset() { score = 0; over = false; y = 0; vy = 0; t = 0; obs.clear(); lastX = W + 40; fillObs(); }
 
@@ -491,7 +491,7 @@ final class RhythmApp extends Arcade {
             else { obs.add(new float[]{lastX, 10, 10, 0}); lastX += 36; obs.add(new float[]{lastX, 10, 10, 0}); }
         }
     }
-    private void jump() { if (over) { reset(); return; } if (y <= 0.01f) vy = V0; }
+    private void jump() { if (over) { reset(); return; } if (y <= 0.01f) { vy = V0; Sfx.play('j'); } }
     @Override void tap(float x, float yy) { jump(); }
     @Override boolean key(int k) { if (k == K_SPACE || k == K_UP || k == K_W) { jump(); return true; } return false; }
 
@@ -551,6 +551,8 @@ final class GolfApp extends Game {
     boolean aiming, sunk, finished;
     float ax, ay, sunkT;
 
+    int bestTotal = Scores.get("golf");
+
     GolfApp() { super("golf", "Mini Golf", "GLF", 0xFF388E3C); reset(); }
 
     @Override void reset() { hole = 0; total = 0; finished = false; load(); }
@@ -559,7 +561,7 @@ final class GolfApp extends Game {
 
     @Override void press(float x, float y) {
         if (finished) { reset(); return; }
-        if (sunk) { total += strokes; if (hole + 1 >= HOLES.length) finished = true; else { hole++; load(); } return; }
+        if (sunk) { total += strokes; if (hole + 1 >= HOLES.length) { finished = true; Scores.lower("golf", total); bestTotal = Scores.get("golf"); Sfx.share('w'); } else { hole++; load(); } return; }
         if (!moving() && Math.hypot(x - bx, y - by) < 16) { aiming = true; ax = x; ay = y; }
     }
     @Override void release(float x, float y) {
@@ -568,7 +570,7 @@ final class GolfApp extends Game {
         float dx = bx - x, dy = by - y, d = (float) Math.hypot(dx, dy);
         if (d < 3) return;
         float sp = Math.min(d * 3.4f, 230);
-        vx = dx / d * sp; vy = dy / d * sp; strokes++;
+        vx = dx / d * sp; vy = dy / d * sp; strokes++; Sfx.play('k');
     }
 
     @Override void update(float dt) {
@@ -593,7 +595,7 @@ final class GolfApp extends Game {
                     if (dot < 0) { vx -= 2 * dot * nx; vy -= 2 * dot * ny; }
                 }
             }
-            if (Math.hypot(bx - h[2], by - h[3]) < 4 && Math.hypot(vx, vy) < 150) { sunk = true; bx = h[2]; by = h[3]; vx = 0; vy = 0; }
+            if (Math.hypot(bx - h[2], by - h[3]) < 4 && Math.hypot(vx, vy) < 150) { sunk = true; bx = h[2]; by = h[3]; vx = 0; vy = 0; Sfx.play('p'); }
         }
         if (strokes >= 12 && !moving() && !sunk) sunk = true;
     }
@@ -613,7 +615,7 @@ final class GolfApp extends Game {
         }
         if (!sunk) box(g, bx - 3, by - 3, bx + 3, by + 3, 0xFFFFFFFF);
         txt(g, "Hole " + (hole + 1) + "/" + HOLES.length + "  Par " + (int) h[4], 5, 5, WHITE);
-        txt(g, "Strokes " + strokes + "  Total " + total, 5, 14, GRAY);
+        txt(g, "Strokes " + strokes + "  Total " + total + (bestTotal > 0 ? "  Best " + bestTotal : ""), 5, 14, GRAY);
         if (sunk) { box(g, 10, 90, W - 10, 130, 0xDD000000); ctr(g, strokes >= 12 ? "Too many!" : "In " + strokes + "!", W / 2, 98, 0xFF8FD6DD, 1.4f); ctr(g, "Tap to continue", W / 2, 116, GRAY, 0.9f); }
         if (finished) { box(g, 10, 80, W - 10, 140, 0xDD000000); ctr(g, "Course done!", W / 2, 90, 0xFF8FD6DD, 1.3f); ctr(g, "Total " + total + " strokes", W / 2, 108, WHITE, 1f); ctr(g, "Tap to restart", W / 2, 122, GRAY, 0.9f); }
         else if (!moving() && strokes == 0 && !sunk) ctr(g, "Drag back from the ball, release", W / 2, 205, GRAY, 0.7f);

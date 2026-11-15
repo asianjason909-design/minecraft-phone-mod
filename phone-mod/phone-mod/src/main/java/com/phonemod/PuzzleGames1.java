@@ -37,7 +37,7 @@ final class TetrisApp extends Arcade {
         }
         return false;
     }
-    private void move(int dx) { if (!collides(cur, cx + dx, cy)) cx += dx; }
+    private void move(int dx) { if (!collides(cur, cx + dx, cy)) { cx += dx; Sfx.play('c'); } }
     private void rotate() {
         if (type == 1) return;
         int[][] n = new int[4][2];
@@ -54,6 +54,7 @@ final class TetrisApp extends Arcade {
             for (int c = 0; c < CW; c++) if (board[r][c] == 0) full = false;
             if (full) { cleared++; for (int rr = r; rr > 0; rr--) board[rr] = board[rr - 1].clone(); board[0] = new int[CW]; r++; }
         }
+        Sfx.play('k');
         if (cleared > 0) { score += new int[]{0, 100, 300, 500, 800}[cleared] * level; lines += cleared; level = lines / 10 + 1; }
         fall = 0;
         spawn();
@@ -109,7 +110,9 @@ final class Game2048App extends Game {
     float sx, sy;
     static final int[] COL = {0xFFCDC1B4, 0xFFEEE4DA, 0xFFEDE0C8, 0xFFF2B179, 0xFFF59563, 0xFFF67C5F, 0xFFF65E3B, 0xFFEDCF72, 0xFFEDCC61, 0xFFEDC850, 0xFFEDC53F, 0xFFEDC22E, 0xFF3C3A32};
 
-    Game2048App() { super("2048", "2048", "2048", 0xFFEDC22E); reset(); }
+    Game2048App() { super("2048", "2048", "2048", 0xFFEDC22E); best = Scores.get("2048"); reset(); }
+
+    @Override void saveStats() { best = Math.max(best, score); Scores.raise("2048", best); }
 
     @Override void reset() { for (int[] r : t) java.util.Arrays.fill(r, 0); score = 0; over = false; add(); add(); }
     private void add() {
@@ -140,11 +143,12 @@ final class Game2048App extends Game {
     }
     private void play(int dir) {
         if (over) return;
-        if (slide(dir)) add();
+        int before = score;
+        if (slide(dir)) { add(); Sfx.play(score > before ? 'p' : 'k'); }
         best = Math.max(best, score);
         boolean can = false;
         for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) if (t[r][c] == 0 || (c < 3 && t[r][c] == t[r][c + 1]) || (r < 3 && t[r][c] == t[r + 1][c])) can = true;
-        over = !can;
+        if (!can && !over) { over = true; saveStats(); Sfx.share('x'); }
     }
     @Override boolean key(int k) {
         if (k == K_UP || k == K_W) play(0); else if (k == K_RIGHT || k == K_D) play(1);
@@ -187,6 +191,7 @@ final class MinesApp extends Game {
     final int[][] near = new int[N][N];
     boolean started, lost, won, flagMode;
     float time;
+    int bestTime = Scores.get("mines");
 
     MinesApp() { super("mines", "Minesweeper", "MINE", 0xFF607D8B); reset(); }
 
@@ -214,10 +219,10 @@ final class MinesApp extends Game {
             int r = p[0], c = p[1];
             if (r < 0 || c < 0 || r >= N || c >= N || open[r][c] || flag[r][c]) continue;
             open[r][c] = true;
-            if (mine[r][c]) { lost = true; continue; }
+            if (mine[r][c]) { if (!lost) { lost = true; Sfx.share('e'); } continue; }
             if (near[r][c] == 0) for (int dr = -1; dr <= 1; dr++) for (int dc = -1; dc <= 1; dc++) st.add(new int[]{r + dr, c + dc});
         }
-        if (!lost) { int o = 0; for (boolean[] row : open) for (boolean b : row) if (b) o++; if (o == N * N - MINES) won = true; }
+        if (!lost) { int o = 0; for (boolean[] row : open) for (boolean b : row) if (b) o++; if (o == N * N - MINES) { won = true; Scores.lower("mines", (int) time + 1); bestTime = Scores.get("mines"); Sfx.share('w'); } }
     }
     @Override void update(float dt) { if (started && !lost && !won) time += dt; }
     @Override void press(float x, float y) {
@@ -226,16 +231,18 @@ final class MinesApp extends Game {
         if (in(x, y, 4, 164, 114, 180)) { reset(); return; }
         if (lost || won || !in(x, y, GX, GY, GX + N * CS, GY + N * CS)) return;
         int c = (int) ((x - GX) / CS), r = (int) ((y - GY) / CS);
-        if (flagMode) { if (!open[r][c]) flag[r][c] = !flag[r][c]; return; }
+        if (flagMode) { if (!open[r][c]) { flag[r][c] = !flag[r][c]; Sfx.play('c'); } return; }
         if (flag[r][c] || open[r][c]) return;
         if (!started) { started = true; plant(r, c); }
+        Sfx.play('c');
         reveal(r, c);
     }
 
     @Override void draw(GuiGraphicsExtractor g) {
         box(g, 0, 0, W, H, 0xFF1E2228);
         int fl = 0; for (boolean[] row : flag) for (boolean b : row) if (b) fl++;
-        txt(g, "Mines " + (MINES - fl), 5, 6, WHITE); txt(g, (int) time + "s", 90, 6, GRAY);
+        txt(g, "Mines " + (MINES - fl), 5, 6, WHITE); txt(g, (int) time + "s", 68, 6, GRAY);
+        if (bestTime > 0) left(g, "Best " + bestTime + "s", 68, 15, GRAY, 0.7f);
         for (int r = 0; r < N; r++) for (int c = 0; c < N; c++) {
             float x = GX + c * CS, y = GY + r * CS;
             boolean show = open[r][c] || (lost && mine[r][c]);
@@ -296,7 +303,9 @@ final class SudokuApp extends Game {
         grid[sr][sc] = d;
         boolean all = true;
         for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) if (grid[r][c] == 0 || conflict(r, c)) all = false;
+        if (all && !won) { Scores.add("sudoku", 1); Sfx.share('w'); }
         won = all;
+        if (!all) Sfx.play('k');
     }
     @Override boolean key(int k) {
         if (k >= 49 && k <= 57) { put(k - 48); return true; }
@@ -319,7 +328,7 @@ final class SudokuApp extends Game {
 
     @Override void draw(GuiGraphicsExtractor g) {
         box(g, 0, 0, W, H, 0xFF14161F);
-        txt(g, won ? "Solved!" : "Sudoku", 5, 6, won ? 0xFF8FD6DD : WHITE);
+        txt(g, won ? "Solved!" : "Sudoku", 5, 6, won ? 0xFF8FD6DD : WHITE); left(g, "Solved " + Scores.get("sudoku"), 70, 7, GRAY, 0.8f);
         box(g, GX - 1, GY - 1, GX + 9 * CS + 1, GY + 9 * CS + 1, 0xFF90A4AE);
         for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) {
             float x = GX + c * CS, y = GY + r * CS;

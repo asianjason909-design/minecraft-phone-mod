@@ -29,6 +29,7 @@ abstract class Game {
     Game lbl(String s) { label = s; return this; }
 
     void reset() { }
+    void saveStats() { }
     void update(float dt) { }
     abstract void draw(GuiGraphicsExtractor g);
     void press(float x, float y) { }
