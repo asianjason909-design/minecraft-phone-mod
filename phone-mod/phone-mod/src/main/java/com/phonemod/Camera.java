@@ -152,7 +152,7 @@ final class McWorld implements VoxCam.World {
         int c = mc.level.getBlockState(mp.set(x, y, z)).getMapColor(mc.level, mp).col;
         return c == 0 ? 0x808080 : c;
     }
-    @Override public boolean night() { long t = mc.level.getDayTime() % 24000L; return t > 13000 && t < 23000; }
+   @Override public boolean night() { return false; }
     @Override public List<double[]> others() {
         List<double[]> out = new ArrayList<>();
         for (var p : mc.level.players()) if (p != mc.player) out.add(new double[]{p.getX(), p.getY(), p.getZ()});
