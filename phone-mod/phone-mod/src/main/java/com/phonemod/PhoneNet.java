@@ -44,6 +44,9 @@ final class PhoneNet {
     private static final Map<String, String[]> photoParts = new HashMap<>();
 
     private static final Deque<Supplier<String>> outbox = new ArrayDeque<>();
+    /** tests can replace these */
+    static Supplier<String> meName = () -> { Minecraft mc = Minecraft.getInstance(); return mc.player == null ? "Me" : mc.player.getGameProfile().name(); };
+    static Supplier<List<String>> online = PhoneNet::mcOnline;
     private static long lastSend;
 
     static String key(String opponent, char gid) { return opponent + "|" + gid; }
@@ -52,7 +55,7 @@ final class PhoneNet {
         ClientReceiveMessageEvents.ALLOW_CHAT.register((message, signed, sender, params, ts) -> !handle(message));
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> !handle(message));
         ClientTickEvents.END_CLIENT_TICK.register(PhoneNet::tick);
-        ClientTickEvents.END_CLIENT_TICK.register(mc -> MusicEngine.tick(System.nanoTime()));
+        ClientTickEvents.END_CLIENT_TICK.register(mc -> { MusicEngine.tick(System.nanoTime()); Calls.tick(); });
         Scores.installExitHook();
     }
 
@@ -89,6 +92,7 @@ final class PhoneNet {
             case 'I' -> { contacts.add(from); photoPart(from, rest); }
             case 'G' -> game(from, rest);
             case 'Z' -> { contacts.add(from); MusicEngine.onRemote(from, rest); }
+            case 'T' -> { contacts.add(from); Calls.onSignal(from, rest); }
             case 'F' -> { contacts.add(from); if (!rest.isEmpty()) Sfx.remote(from, rest.charAt(0)); }
             default -> { }
         }
@@ -141,7 +145,7 @@ final class PhoneNet {
         }
     }
 
-    private static void notify(String s) {
+    static void notify(String s) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) mc.player.sendSystemMessage(Component.literal(s));
     }
@@ -154,7 +158,28 @@ final class PhoneNet {
     /** a whisper that is built at the moment it is actually sent (return null to skip it) */
     static void enqueueLazy(Supplier<String> s) { outbox.add(s); }
 
+    /** calls and urgent signals jump the queue (kept in the order given) */
+    static void enqueueFront(String... cmds) { for (int i = cmds.length - 1; i >= 0; i--) { final String c = cmds[i]; outbox.addFirst(() -> c); } }
+
+    static void enqueueRaw(String command) { outbox.add(() -> command); }
+
     static int queueSize() { return outbox.size(); }
+
+    static String myName() { return meName.get(); }
+
+    static List<String> onlineNames() { return online.get(); }
+
+    private static List<String> mcOnline() {
+        List<String> out = new ArrayList<>();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getConnection() == null || mc.player == null) return out;
+        String me = mc.player.getGameProfile().name();
+        for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) { String n = info.getProfile().name(); if (!n.equals(me)) out.add(n); }
+        return out;
+    }
+
+    /** ask one player whether they have the mod; they become a contact when they answer */
+    static void ping(String name) { enqueue(name, 'P', ""); }
 
     static void sendText(String to, String text) {
         threads.computeIfAbsent(to, k -> new ArrayList<>()).add(new Msg(true, text));
@@ -173,19 +198,6 @@ final class PhoneNet {
 
     /** body examples: "N" invite, "A" accept, "V..." a move, "R" resign, "X" rematch */
     static void sendGame(String to, char gid, String body) { enqueue(to, 'G', "" + gid + body); }
-
-    /** Pings everyone online; only players with the mod answer, and they become contacts. */
-    static int scan() {
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.getConnection() == null || mc.player == null) return 0;
-        String me = mc.player.getGameProfile().name();
-        int n = 0;
-        for (PlayerInfo info : mc.getConnection().getOnlinePlayers()) {
-            String name = info.getProfile().name();
-            if (!name.equals(me)) { enqueue(name, 'P', ""); n++; }
-        }
-        return n;
-    }
 
     static int totalUnread() {
         int n = 0;

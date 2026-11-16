@@ -73,13 +73,15 @@ final class SnakeApp extends Game {
 /** Every game on the phone, in default home-screen order. */
 final class Games {
     static final String[] DEFAULT_ORDER = {
-        "messages", "camera", "music", "blast", "flappy", "snake", "chess", "tictactoe", "connect4",
+        "messages", "call", "facetime", "camera", "music", "blast", "flappy", "snake", "chess", "tictactoe", "connect4",
         "checkers", "tetris", "2048", "dino", "pong", "mines", "brick", "doodle", "invaders", "galaga",
         "pac", "asteroids", "rhythm", "crossy", "sudoku", "mahjong", "wordle", "unblock", "golf", "heli",
         "race", "paddle", "settings"};
     static final List<Game> ALL = new ArrayList<>();
 
     static {
+        ALL.add(new CallApp());
+        ALL.add(new FaceTimeApp().lbl("FaceTime"));
         ALL.add(new CameraApp());
         ALL.add(new MusicApp());
         ALL.add(new BlastApp().lbl("Blast"));

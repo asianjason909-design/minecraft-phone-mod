@@ -40,6 +40,7 @@ final class Sfx {
             case 'j' -> new Snd("entity.rabbit.jump", 1.0f, 0.6f);
             case 'o' -> new Snd("entity.item.pickup", 1.6f, 0.7f);
             case 'b' -> new Snd("block.stone_button.click_on", 1.9f, 0.9f);
+            case 'r' -> new Snd("block.note_block.bell", 1.5f, 0.9f);
             default -> null;
         };
     }

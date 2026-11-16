@@ -7,13 +7,17 @@ import org.lwjgl.glfw.GLFW;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The Messages app: contact list (mod users only) and chat threads. */
+/** The Messages app: search for a player by name, contact list (mod users only) and chat threads. */
 final class MessagesApp {
     String open;                 // null = contact list, else the contact being chatted with
     Game pendingGame;            // set when the user taps into a duel; PhoneScreen picks it up
+    boolean focus;               // typing into the search bar
+    String query = "";
     private String input = "";
-    private long scanUntil;
-    private int scanCount;
+    private String note = "";
+    private long noteUntil;
+
+    boolean typing() { return open != null || focus; }
 
     // ---------- drawing ----------
     void draw(GuiGraphicsExtractor g) {
@@ -22,35 +26,56 @@ final class MessagesApp {
         if (open == null) drawList(g); else drawThread(g);
     }
 
-    private void drawList(GuiGraphicsExtractor g) {
-        PhoneScreen.left(g, "Messages", 6, 6, 0xFFFFFFFF, 1.3f);
-        PhoneScreen.box(g, 78, 4, 114, 19, 0xFF2E86DE);
-        PhoneScreen.ctr(g, "Scan", 96, 8, 0xFFFFFFFF, 1f);
+    /** rows: {name, kind}; kind c = contact, o = online player without the mod yet, a = the typed name */
+    List<String[]> rows() {
+        String q = query.toLowerCase();
+        List<String[]> out = new ArrayList<>();
+        for (String n : PhoneNet.contacts) if (q.isEmpty() || n.toLowerCase().contains(q)) out.add(new String[]{n, "c"});
+        for (String n : PhoneNet.onlineNames()) if (!PhoneNet.contacts.contains(n) && (q.isEmpty() || n.toLowerCase().contains(q))) out.add(new String[]{n, "o"});
+        if (query.length() >= 3) {
+            boolean have = false;
+            for (String[] r : out) if (r[0].equalsIgnoreCase(query)) have = true;
+            if (!have) out.add(new String[]{query, "a"});
+        }
+        return out;
+    }
 
-        if (PhoneNet.contacts.isEmpty()) {
+    private void drawList(GuiGraphicsExtractor g) {
+        boolean blink = (System.currentTimeMillis() / 500) % 2 == 0;
+        PhoneScreen.box(g, 4, 4, 114, 20, focus ? 0xFF2E86DE : 0xFF333847);
+        PhoneScreen.box(g, 5, 5, 113, 19, 0xFF222633);
+        if (query.isEmpty() && !focus) PhoneScreen.txt(g, "Search player name...", 8, 8, 0xFF6F7585);
+        else PhoneScreen.txt(g, query + (focus && blink ? "_" : ""), 8, 8, 0xFFFFFFFF);
+
+        List<String[]> rows = rows();
+        if (rows.isEmpty()) {
             PhoneScreen.ctr(g, "No friends yet.", PhoneScreen.SW / 2, 70, 0xFFFFFFFF, 1f);
-            PhoneScreen.ctr(g, "Tap Scan to find players", PhoneScreen.SW / 2, 86, 0xFFAAAAAA, 0.8f);
-            PhoneScreen.ctr(g, "who have the phone mod.", PhoneScreen.SW / 2, 97, 0xFFAAAAAA, 0.8f);
+            PhoneScreen.ctr(g, "Type a player's name above", PhoneScreen.SW / 2, 86, 0xFFAAAAAA, 0.8f);
+            PhoneScreen.ctr(g, "to add them (they need the mod).", PhoneScreen.SW / 2, 97, 0xFFAAAAAA, 0.8f);
         }
-        int i = 0;
-        for (String name : PhoneNet.contacts) {
-            if (i >= 8) break;
+        for (int i = 0; i < rows.size() && i < 7; i++) {
+            String name = rows.get(i)[0], kind = rows.get(i)[1];
             int y = 26 + i * 22;
-            PhoneScreen.box(g, 4, y, 114, y + 20, 0xFF222633);
-            PhoneScreen.txt(g, name, 8, y + 3, 0xFFFFFFFF);
-            List<PhoneNet.Msg> t = PhoneNet.threads.get(name);
-            String last = (t == null || t.isEmpty()) ? "" : (t.get(t.size() - 1).photo() != null ? "[photo]" : t.get(t.size() - 1).text());
-            if (last.length() > 28) last = last.substring(0, 28) + "...";
-            PhoneScreen.left(g, last, 8, y + 12, 0xFF8A8F9E, 0.7f);
-            int un = PhoneNet.unread.getOrDefault(name, 0);
-            if (un > 0) {
-                PhoneScreen.box(g, 98, y + 4, 110, y + 16, 0xFFE53935);
-                PhoneScreen.ctr(g, String.valueOf(Math.min(un, 9)), 104, y + 6, 0xFFFFFFFF, 0.9f);
+            PhoneScreen.box(g, 4, y, 114, y + 20, kind.equals("c") ? 0xFF222633 : 0xFF1B1E29);
+            PhoneScreen.txt(g, name, 8, y + 3, kind.equals("c") ? 0xFFFFFFFF : 0xFFB0B5C3);
+            if (kind.equals("c")) {
+                List<PhoneNet.Msg> t = PhoneNet.threads.get(name);
+                String last = (t == null || t.isEmpty()) ? "" : (t.get(t.size() - 1).photo() != null ? "[photo]" : t.get(t.size() - 1).text());
+                if (last.length() > 28) last = last.substring(0, 28) + "...";
+                PhoneScreen.left(g, last, 8, y + 12, 0xFF8A8F9E, 0.7f);
+                int un = PhoneNet.unread.getOrDefault(name, 0);
+                if (un > 0) {
+                    PhoneScreen.box(g, 98, y + 4, 110, y + 16, 0xFFE53935);
+                    PhoneScreen.ctr(g, String.valueOf(Math.min(un, 9)), 104, y + 6, 0xFFFFFFFF, 0.9f);
+                }
+            } else {
+                PhoneScreen.left(g, kind.equals("a") ? "Tap to add this name" : "Online - tap to add", 8, y + 12, 0xFF6F7585, 0.7f);
+                PhoneScreen.box(g, 94, y + 4, 110, y + 16, 0xFF2E86DE);
+                PhoneScreen.ctr(g, "+", 102, y + 5, 0xFFFFFFFF, 1f);
             }
-            i++;
         }
-        if (System.currentTimeMillis() < scanUntil)
-            PhoneScreen.ctr(g, "Pinged " + scanCount + " player(s)...", PhoneScreen.SW / 2, 204, 0xFF8FD6DD, 0.8f);
+        if (System.currentTimeMillis() < noteUntil)
+            PhoneScreen.ctr(g, note.length() > 34 ? note.substring(0, 34) : note, PhoneScreen.SW / 2, 204, 0xFF8FD6DD, 0.7f);
     }
 
     private void drawThread(GuiGraphicsExtractor g) {
@@ -107,21 +132,21 @@ final class MessagesApp {
     }
 
     // ---------- input ----------
+    private void act(String[] row) {
+        if (row[1].equals("c")) { open = row[0]; input = ""; return; }
+        PhoneNet.ping(row[0]);
+        note = "Asked " + row[0] + " - they show up once they answer";
+        noteUntil = System.currentTimeMillis() + 5000;
+    }
+
     void click(float x, float y) {
         Sfx.play('c');
         if (open == null) {
-            if (x >= 78 && x <= 114 && y >= 4 && y <= 19) {
-                scanCount = PhoneNet.scan();
-                scanUntil = System.currentTimeMillis() + 4000;
-                return;
-            }
-            int i = 0;
-            for (String name : PhoneNet.contacts) {
-                if (i >= 8) break;
-                int ry = 26 + i * 22;
-                if (x >= 4 && x <= 114 && y >= ry && y <= ry + 20) { open = name; input = ""; return; }
-                i++;
-            }
+            if (y >= 4 && y <= 20 && x >= 4 && x <= 114) { focus = true; return; }
+            List<String[]> rows = rows();
+            for (int i = 0; i < rows.size() && i < 7; i++)
+                if (x >= 4 && x <= 114 && y >= 26 + i * 22 && y <= 46 + i * 22) { act(rows.get(i)); return; }   // keeps the bar focused
+            focus = false;   // tapped empty space
             return;
         }
         if (x >= 4 && x <= 18 && y >= 4 && y <= 18) { open = null; return; }
@@ -156,21 +181,32 @@ final class MessagesApp {
         input = "";
     }
 
-    /** @return true if the key was consumed (always, while a thread is open, so typing never triggers shortcuts) */
+    /** @return true if the key was consumed (always while typing, so typing never triggers shortcuts) */
     boolean key(int k) {
-        if (open == null) return false;
-        if (k == GLFW.GLFW_KEY_ESCAPE) { open = null; return true; }
-        if (k == GLFW.GLFW_KEY_ENTER || k == GLFW.GLFW_KEY_KP_ENTER) { send(); return true; }
-        if (k == GLFW.GLFW_KEY_BACKSPACE) {
-            if (!input.isEmpty()) input = input.substring(0, input.length() - 1);
+        if (open != null) {
+            if (k == GLFW.GLFW_KEY_ESCAPE) { open = null; return true; }
+            if (k == GLFW.GLFW_KEY_ENTER || k == GLFW.GLFW_KEY_KP_ENTER) { send(); return true; }
+            if (k == GLFW.GLFW_KEY_BACKSPACE) { if (!input.isEmpty()) input = input.substring(0, input.length() - 1); return true; }
+            return true;
+        }
+        if (!focus) return false;
+        if (k == GLFW.GLFW_KEY_ESCAPE) { if (!query.isEmpty()) query = ""; else focus = false; return true; }
+        if (k == GLFW.GLFW_KEY_BACKSPACE) { if (!query.isEmpty()) query = query.substring(0, query.length() - 1); return true; }
+        if (k == GLFW.GLFW_KEY_ENTER || k == GLFW.GLFW_KEY_KP_ENTER) {
+            List<String[]> rows = rows();
+            if (rows.size() == 1) act(rows.get(0));
+            else if (query.length() >= 3) act(new String[]{query, "a"});
             return true;
         }
         return true;
     }
 
     void typed(String s) {
-        if (open == null || s.isEmpty() || s.charAt(0) < 32 || input.length() >= 150) return;
-        input += s;
+        if (s.isEmpty()) return;
+        char c = s.charAt(0);
+        if (open != null) {
+            if (c >= 32 && input.length() < 150) input += s;
+        } else if (focus && (Character.isLetterOrDigit(c) || c == '_') && c < 128 && query.length() < 16) query += s;
     }
 
     private static List<String> wrap(String s, int maxW) {

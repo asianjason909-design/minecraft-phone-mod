@@ -47,9 +47,15 @@ public class PhoneScreen extends Screen {
     private long pdNs, edgeNs;
     private int pIdx = -1;
     private boolean gamePress;
+    private float offX, offY, dragMx, dragMy, dragOffX0, dragOffY0;   // the phone itself can be dragged by its frame
+    private boolean dragPhone;
     private Mode mode = Mode.NONE;
 
-    public PhoneScreen() { super(Component.literal("Phone")); Sfx.share('o'); }
+    public PhoneScreen() {
+        super(Component.literal("Phone"));
+        Sfx.share('o');
+        if (Calls.state == Calls.State.IN) openApp(Calls.video ? "facetime" : "call");
+    }
 
     @Override public boolean isPauseScreen() { return false; }
 
@@ -123,8 +129,12 @@ public class PhoneScreen extends Screen {
 
         scale = Math.min(height * 0.82f / PH, 3f);
         // swings in from the bottom-right, tilted, and straightens out
-        pcx = width / 2f + (1f - p) * width * 0.22f;
-        pcy = height / 2f + (1f - p) * (height * 0.5f + PH * scale * 0.5f + 12f);
+        if (dragPhone) {
+            offX = Math.max(-width / 2f, Math.min(width / 2f, dragOffX0 + (mx - dragMx)));
+            offY = Math.max(-height / 2f, Math.min(height / 2f, dragOffY0 + (my - dragMy)));
+        }
+        pcx = width / 2f + offX + (1f - p) * width * 0.22f;
+        pcy = height / 2f + offY + (1f - p) * (height * 0.5f + PH * scale * 0.5f + 12f);
         float lx = (mx - pcx) / scale + PW / 2f - SX;
         float ly = (my - pcy) / scale + PH / 2f - SY;
 
@@ -203,6 +213,10 @@ public class PhoneScreen extends Screen {
         else if (id.equals("settings")) builtinIcon(g, 5, x, y);
         else { Game gm = Games.byId(id); if (gm != null) gm.icon(g, x, y); }
         if (withLabel && x >= 0 && x + 30 <= SW) ctr(g, labelOf(id), x + 15, y + 34, 0xFFFFFFFF, 0.7f);
+        if (withLabel && (id.equals("call") || id.equals("facetime")) && Calls.state == Calls.State.IN) {
+            box(g, x + 23, y - 3, x + 34, y + 8, 0xFFE53935);
+            ctr(g, "!", x + 28, y - 2, 0xFFFFFFFF, 0.8f);
+        }
         if (withLabel && id.equals("messages") && PhoneNet.totalUnread() > 0) {
             box(g, x + 23, y - 3, x + 34, y + 8, 0xFFE53935);
             ctr(g, String.valueOf(Math.min(PhoneNet.totalUnread(), 9)), x + 28, y - 2, 0xFFFFFFFF, 0.8f);
@@ -321,7 +335,7 @@ public class PhoneScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent e) {
         int k = e.key();
-        if (app == App.MESSAGES && messages.open != null) { messages.key(k); return true; }
+        if (app == App.MESSAGES && messages.typing()) { if (k == GLFW.GLFW_KEY_ESCAPE && messages.open == null && !messages.focus) return super.keyPressed(e); messages.key(k); return true; }
         if (app == App.GAME && game.capturesText()) {
             if (k == GLFW.GLFW_KEY_ESCAPE) return super.keyPressed(e);
             game.key(k);
@@ -341,7 +355,7 @@ public class PhoneScreen extends Screen {
     @Override
     public boolean charTyped(CharacterEvent e) {
         String s = Character.toString(e.codepoint());
-        if (app == App.MESSAGES && messages.open != null) { messages.typed(s); return true; }
+        if (app == App.MESSAGES && messages.typing()) { messages.typed(s); return true; }
         if (app == App.GAME && game.capturesText()) { game.typed(s); return true; }
         return super.charTyped(e);
     }
@@ -352,9 +366,14 @@ public class PhoneScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent e, boolean dbl) {
         if (closeNs >= 0 || e.button() != 0 || progress(System.nanoTime()) < 0.9f) return true;
-        float fy = localY(e.y());
-        float x = localX(e.x()) - SX, y = fy - SY;
-        if (app != App.HOME && y > SH && fy < PH) { goHome(); return true; }   // home bar area
+        float fx = localX(e.x()), fy = localY(e.y());
+        float x = fx - SX, y = fy - SY;
+        if (app != App.HOME && fy > SY + SH && fy < PH && Math.abs(fx - PW / 2f) < 40) { goHome(); return true; }   // home bar
+        boolean inPhone = fx >= 0 && fx <= PW && fy >= 0 && fy <= PH, inDisplay = x >= 0 && x <= SW && y >= 0 && y <= SH;
+        if (inPhone && !inDisplay) {   // grab the phone by its frame and move it around
+            dragPhone = true; dragMx = (float) e.x(); dragMy = (float) e.y(); dragOffX0 = offX; dragOffY0 = offY;
+            return true;
+        }
         switch (app) {
             case HOME -> {
                 homeDown = true; pdx = x; pdy = y; pdNs = System.nanoTime();
@@ -383,6 +402,7 @@ public class PhoneScreen extends Screen {
 
     @Override
     public boolean mouseReleased(MouseButtonEvent e) {
+        if (dragPhone) { dragPhone = false; return true; }
         float x = localX(e.x()) - SX, y = localY(e.y()) - SY;
         if (app == App.HOME) homeRelease(x, y);
         else if (app == App.GAME && gamePress) { gamePress = false; game.down = false; game.release(x, y); }

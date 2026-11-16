@@ -20,8 +20,8 @@ final class Photo {
 
     void quantize() { for (int i = 0; i < px.length; i++) px[i] = expand(code(px[i])); }
 
-    private static int code(int rgb) { return (((rgb >> 22) & 3) << 4) | (((rgb >> 14) & 3) << 2) | ((rgb >> 6) & 3); }
-    private static int expand(int c) { return (((c >> 4) & 3) * 85 << 16) | (((c >> 2) & 3) * 85 << 8) | ((c & 3) * 85); }
+    static int code(int rgb) { return (((rgb >> 22) & 3) << 4) | (((rgb >> 14) & 3) << 2) | ((rgb >> 6) & 3); }
+    static int expand(int c) { return (((c >> 4) & 3) * 85 << 16) | (((c >> 2) & 3) * 85 << 8) | ((c & 3) * 85); }
 
     String encode() {
         StringBuilder sb = new StringBuilder(px.length);
@@ -93,6 +93,17 @@ final class VoxCam {
         return ph;
     }
 
+    /** a picture of the player from the front (camera floats ~2.6 blocks ahead of them, looking back) */
+    static Photo selfie(World w, double ex, double ey, double ez, float yawDeg, float pitchDeg) {
+        double yaw = Math.toRadians(yawDeg), pitch = Math.toRadians(pitchDeg);
+        double fx = -Math.sin(yaw) * Math.cos(pitch), fy = -Math.sin(pitch), fz = Math.cos(yaw) * Math.cos(pitch);
+        double d = 2.6;
+        for (double t = 0.3; t <= 2.6; t += 0.25) {
+            if (w.solidAt((int) Math.floor(ex + fx * t), (int) Math.floor(ey + fy * t), (int) Math.floor(ez + fz * t))) { d = Math.max(0.7, t - 0.3); break; }
+        }
+        return render(w, ex + fx * d, ey + fy * d, ez + fz * d, yawDeg + 180f, -pitchDeg);
+    }
+
     private static int mix(int a, int b, double t) {
         t = Math.max(0, Math.min(1, t));
         int r = (int) (((a >> 16) & 255) * (1 - t) + ((b >> 16) & 255) * t), g = (int) (((a >> 8) & 255) * (1 - t) + ((b >> 8) & 255) * t), bl = (int) ((a & 255) * (1 - t) + (b & 255) * t);
@@ -138,31 +149,46 @@ final class VoxCam {
     }
 }
 
-/** VoxCam.World backed by the real Minecraft world. */
+/** VoxCam.World backed by the real Minecraft world, seen from any player we can see. */
 final class McWorld implements VoxCam.World {
     private final Minecraft mc = Minecraft.getInstance();
     private final BlockPos.MutableBlockPos mp = new BlockPos.MutableBlockPos();
+    private final net.minecraft.client.player.AbstractClientPlayer who;
+    private final boolean showWho;
 
-    static McWorld current() {
+    private McWorld(net.minecraft.client.player.AbstractClientPlayer who, boolean showWho) { this.who = who; this.showWho = showWho; }
+
+    /** your own point of view; showSelf = also draw your own body (for front-camera selfies) */
+    static McWorld forSelf(boolean showSelf) {
         Minecraft mc = Minecraft.getInstance();
-        return mc.level == null || mc.player == null ? null : new McWorld();
+        return mc.level == null || mc.player == null ? null : new McWorld(mc.player, showSelf);
     }
+    static McWorld current() { return forSelf(false); }
+
+    /** another player's point of view, only possible while they are loaded on your screen */
+    static McWorld forPlayer(String name, boolean showThem) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) return null;
+        for (var p : mc.level.players()) if (p.getGameProfile().name().equals(name)) return new McWorld(p, showThem);
+        return null;
+    }
+
     @Override public boolean solidAt(int x, int y, int z) { return !mc.level.getBlockState(mp.set(x, y, z)).isAir(); }
     @Override public int colorAt(int x, int y, int z) {
         int c = mc.level.getBlockState(mp.set(x, y, z)).getMapColor(mc.level, mp).col;
         return c == 0 ? 0x808080 : c;
     }
-   @Override public boolean night() { return false; }
+    @Override public boolean night() { return false; }   // 26.2 has no getDayTime(); pictures are always daytime
     @Override public List<double[]> others() {
         List<double[]> out = new ArrayList<>();
-        for (var p : mc.level.players()) if (p != mc.player) out.add(new double[]{p.getX(), p.getY(), p.getZ()});
+        for (var p : mc.level.players()) if (p != who || showWho) out.add(new double[]{p.getX(), p.getY(), p.getZ()});
         return out;
     }
-    double eyeX() { return mc.player.getX(); }
-    double eyeY() { return mc.player.getEyeY(); }
-    double eyeZ() { return mc.player.getZ(); }
-    float yaw() { return mc.player.getYRot(); }
-    float pitch() { return mc.player.getXRot(); }
+    double eyeX() { return who.getX(); }
+    double eyeY() { return who.getEyeY(); }
+    double eyeZ() { return who.getZ(); }
+    float yaw() { return who.getYRot(); }
+    float pitch() { return who.getXRot(); }
 }
 
 /** Writes an animated GIF with the JDK's built-in ImageIO. */
@@ -235,7 +261,7 @@ final class CameraApp extends Game {
 
     private Photo capture() {
         try {
-            McWorld w = McWorld.current();
+            McWorld w = McWorld.forSelf(false);
             if (w == null) return pattern();
             return VoxCam.render(w, w.eyeX(), w.eyeY(), w.eyeZ(), w.yaw(), w.pitch());
         } catch (Throwable t) { return pattern(); }
