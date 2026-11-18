@@ -30,6 +30,10 @@ abstract class Game {
 
     void reset() { }
     void saveStats() { }
+    /** true = the phone's screen is see-through (camera view) */
+    boolean transparent() { return false; }
+    /** true = Esc docks the phone as a small HUD so you can keep moving */
+    boolean dockable() { return false; }
     void update(float dt) { }
     abstract void draw(GuiGraphicsExtractor g);
     void press(float x, float y) { }

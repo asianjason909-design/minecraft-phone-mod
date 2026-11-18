@@ -25,6 +25,7 @@ abstract class NetGame extends Game implements PhoneNet.NetPlay {
     abstract void drawBoard(GuiGraphicsExtractor g);
 
     boolean myTurn() { return !over && firstTurn == meFirst; }
+    String turnText() { return over ? status : (myTurn() ? "Your move" : (opponent == null ? "Thinking..." : "Waiting for " + opponent)); }
     final void startGame(boolean first) {
         meFirst = first; firstTurn = true; over = false; status = ""; rematchSent = false; rematchIn = false; aiTimer = 0;
         newBoard();
@@ -62,8 +63,7 @@ abstract class NetGame extends Game implements PhoneNet.NetPlay {
         box(g, 0, 0, W, H, 0xFF1B1D24);
         txt(g, opponent == null ? title + " vs Computer" : title + " vs " + opponent, 5, 5, WHITE);
         left(g, "Wins " + Scores.get(id + "_wins"), 88, 17, GRAY, 0.75f);
-        String t = over ? status : (myTurn() ? "Your move" : (opponent == null ? "Thinking..." : "Waiting for " + opponent));
-        txt(g, t, 5, 16, over ? 0xFFFFAA00 : GRAY);
+        txt(g, turnText(), 5, 16, over ? 0xFFFFAA00 : GRAY);
         drawBoard(g);
         box(g, 4, 196, 56, 212, 0xFF8E2A2A); ctr(g, "Resign", 30, 200, WHITE, 1f);
         if (opponent == null) { box(g, 62, 196, 114, 212, 0xFF2A6E8E); ctr(g, "New game", 88, 200, WHITE, 1f); }
@@ -367,5 +367,126 @@ final class CheckersGame extends NetGame {
             box(g, BX + col * CS + 5, BY + row * CS + 5, BX + col * CS + 9, BY + row * CS + 9, 0xFF69F0AE);
         }
         ctr(g, "You are " + (meFirst ? "red" : "white") + " - captures are forced", W / 2, 152, GRAY, 0.75f);
+    }
+}
+
+/**
+ * Ping Pong duel. Chat is too slow for a live game, so each player only plays the ball that flies at THEM:
+ * move your paddle (mouse) under the landing mark and it goes back; miss and your friend scores. First to 5.
+ */
+final class PingPongGame extends NetGame {
+    private enum St { SERVE, OUT, WAIT, IN, PAUSE }
+    static final int WIN = 5;
+    static final float X0 = 14, X1 = 104, YTOP = 44, YBOT = 176;
+    private St st = St.WAIT;
+    private int mine, theirs, rally;
+    private boolean meServe;
+    private float t, flight, pause, shotFrom, shotTo, paddle = 32, oppX = 32;
+    private String flash = "";
+
+    PingPongGame(String opp, boolean first) { super("pingpong", "Ping Pong", "PP", 0xFF00796B, 'P', opp, first); startGame(first); }
+
+    @Override void newBoard() { mine = 0; theirs = 0; meServe = meFirst; beginPoint(); }
+    private void beginPoint() { rally = 0; flash = ""; st = meServe ? St.SERVE : St.WAIT; t = 0; }
+    private float flightTime() { return Math.max(0.85f, 1.5f - 0.08f * rally); }
+    private static float lat(float px) { return clamp((px - X0) / (X1 - X0) * 63f, 0, 63); }
+    private static float px(float lat) { return X0 + lat / 63f * (X1 - X0); }
+    private static char enc(float v) { return MusicEngine.B64.charAt(Math.round(clamp(v, 0, 63))); }
+    private static float dec(char c) { return Math.max(0, MusicEngine.B64.indexOf(c)); }
+
+    @Override boolean myTurn() { return !over; }
+    @Override String turnText() {
+        if (over) return status;
+        return switch (st) {
+            case SERVE -> "Your serve - tap to aim";
+            case OUT -> "Ball on its way...";
+            case WAIT -> "Waiting for " + opponent + "...";
+            case IN -> "Move your paddle!";
+            case PAUSE -> flash;
+        };
+    }
+
+    @Override void boardClick(float x, float y) {
+        if (st != St.SERVE) return;
+        shotFrom = lat(mx); shotTo = lat(x);
+        sendMove("S" + enc(shotFrom) + enc(shotTo));
+        st = St.OUT; t = 0; flight = flightTime(); flash = "";
+    }
+
+    @Override void update(float dt) {
+        paddle = lat(mx);
+        switch (st) {
+            case OUT -> { t += dt; if (t >= flight) { t = flight; st = St.WAIT; } }
+            case IN -> { t += dt; if (t >= flight) resolveHit(); }
+            case PAUSE -> { pause -= dt; if (pause <= 0 && !over) { st = meServe ? St.SERVE : St.WAIT; flash = ""; } }
+            default -> { }
+        }
+    }
+
+    private void resolveHit() {
+        float land = shotTo;   // in my frame: where the ball arrives
+        if (Math.abs(paddle - land) <= 9.5f) {
+            float back = clamp(32f + (land - paddle) * 3.5f + (RND.nextFloat() - 0.5f) * 8f, 0, 63);
+            shotFrom = paddle; shotTo = back; rally++;
+            sendMove("H" + enc(shotFrom) + enc(shotTo));
+            st = St.OUT; t = 0; flight = flightTime(); flash = "Nice!";
+            Sfx.play('k');
+        } else {
+            sendMove("M");
+            theirs++; meServe = false; flash = "Missed!"; Sfx.play('x');
+            point();
+        }
+    }
+
+    private void point() {
+        st = St.PAUSE; pause = 1.4f;
+        if (mine >= WIN) finish("You win!");
+        else if (theirs >= WIN) finish(opponent + " wins!");
+    }
+
+    @Override public void remoteMove(String s) {
+        if (over || s.isEmpty()) return;
+        char k = s.charAt(0);
+        if (k == 'M') {
+            if (st == St.OUT || st == St.WAIT) { mine++; meServe = true; flash = "Point!"; Sfx.play('p'); point(); }
+        } else if ((k == 'S' || k == 'H') && s.length() >= 3 && (st == St.OUT || st == St.WAIT)) {
+            oppX = 63 - dec(s.charAt(1));
+            shotFrom = 63 - dec(s.charAt(1)); shotTo = 63 - dec(s.charAt(2));   // mirror into my frame
+            st = St.IN; t = 0; flight = flightTime(); rally++;
+        }
+    }
+
+    @Override void aiMove() { }
+
+    float incomingLanding() { return st == St.IN ? shotTo : -1f; }
+    boolean canServe() { return st == St.SERVE; }
+    int myPoints() { return mine; }
+    int theirPoints() { return theirs; }
+
+    @Override void drawBoard(GuiGraphicsExtractor g) {
+        box(g, X0 - 4, YTOP - 8, X1 + 4, YBOT + 12, 0xFF0B3D2E);
+        box(g, X0, YTOP - 4, X1, YBOT + 8, 0xFF1B7A4A);
+        for (float x = X0; x < X1; x += 8) box(g, x, (YTOP + YBOT) / 2f - 1, x + 4, (YTOP + YBOT) / 2f + 1, 0xFFE0E0E0);
+        ctr(g, "You " + mine + "  -  " + theirs + " " + opponent, W / 2, 26, WHITE, 0.9f);
+        // paddles
+        box(g, px(oppX) - 12, YTOP - 6, px(oppX) + 12, YTOP - 2, 0xFFE57373);
+        box(g, px(paddle) - 12, YBOT + 4, px(paddle) + 12, YBOT + 8, 0xFF81C784);
+        // landing mark while a ball is coming at me
+        if (st == St.IN) box(g, px(shotTo) - 6, YBOT + 1, px(shotTo) + 6, YBOT + 3, 0xCCFFEB3B);
+        float bx = px(paddle), by = YBOT, u = flight > 0 ? clamp(t / flight, 0, 1) : 0, arc = 0;
+        switch (st) {
+            case SERVE -> { bx = px(paddle); by = YBOT; }
+            case OUT -> { bx = px(shotFrom + (shotTo - shotFrom) * u); by = YBOT - (YBOT - YTOP) * u; arc = (float) Math.sin(Math.PI * u) * 12; }
+            case WAIT -> { bx = px(shotTo); by = YTOP; }
+            case IN -> { bx = px(shotFrom + (shotTo - shotFrom) * u); by = YTOP + (YBOT - YTOP) * u; arc = (float) Math.sin(Math.PI * u) * 12; }
+            case PAUSE -> { bx = -50; by = -50; }
+        }
+        if (bx > 0) {
+            box(g, bx - 2, by - 1, bx + 2, by + 3, 0x66000000);
+            box(g, bx - 3, by - arc - 3, bx + 3, by - arc + 3, 0xFFFFFFFF);
+        }
+        if (st == St.PAUSE || !flash.isEmpty()) ctr(g, flash, W / 2, 104, 0xFFFFEB3B, 1.3f);
+        if (st == St.SERVE) ctr(g, "Move the mouse, tap where to send it", W / 2, 192, GRAY, 0.7f);
+        if (st == St.IN) ctr(g, "Put the green paddle under the yellow mark", W / 2, 192, GRAY, 0.7f);
     }
 }

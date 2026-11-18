@@ -17,7 +17,9 @@ import java.util.List;
  */
 final class Sfx {
     interface Sink { void play(String sound, float pitch, float vol, double x, double y, double z); }
-    record Near(String name, double x, double y, double z, double dist) { }
+    record Near(String name, double x, double y, double z, double dist, float yaw) {
+        Near(String name, double x, double y, double z, double dist) { this(name, x, y, z, dist, 0f); }
+    }
     interface World { double[] self(); List<Near> players(); }
     record Snd(String name, float pitch, float vol) { }
 
@@ -111,7 +113,7 @@ final class Sfx {
             if (mc.level == null || mc.player == null) return out;
             for (var p : mc.level.players()) {
                 if (p == mc.player) continue;
-                out.add(new Near(p.getGameProfile().name(), p.getX(), p.getY(), p.getZ(), p.distanceTo(mc.player)));
+                out.add(new Near(p.getGameProfile().name(), p.getX(), p.getY(), p.getZ(), p.distanceTo(mc.player), p.getYRot()));
             }
             return out;
         }

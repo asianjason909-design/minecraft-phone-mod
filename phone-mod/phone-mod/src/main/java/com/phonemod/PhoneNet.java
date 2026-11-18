@@ -18,7 +18,8 @@ import java.util.function.Supplier;
  */
 final class PhoneNet {
     static final String MARK = "\u2062\u2063";
-    static final int CHUNK = 214;   // photo characters per whisper (6 whispers per photo)
+    static final String MARK_PLAIN = "~pm~";
+    static final int CHUNK = 190;   // photo characters per whisper (7 whispers per photo)
 
     /** A two-player game that can receive moves from a friend. */
     interface NetPlay {
@@ -32,9 +33,9 @@ final class PhoneNet {
     }
 
     // games you can duel in: id char, full name, short button label
-    static final char[] GAME_IDS = {'C', 'T', '4', 'K'};
-    static final String[] GAME_NAMES = {"Chess", "Tic Tac Toe", "Connect 4", "Checkers"};
-    static final String[] GAME_LABELS = {"Chess", "TicTac", "Conn 4", "Chkrs"};
+    static final char[] GAME_IDS = {'C', 'T', '4', 'K', 'P'};
+    static final String[] GAME_NAMES = {"Chess", "Tic Tac Toe", "Connect 4", "Checkers", "Ping Pong"};
+    static final String[] GAME_LABELS = {"Chess", "TicTac", "Conn4", "Chkrs", "Pong"};
 
     static final Set<String> contacts = new LinkedHashSet<>();
     static final Map<String, List<Msg>> threads = new HashMap<>();
@@ -52,6 +53,7 @@ final class PhoneNet {
     static String key(String opponent, char gid) { return opponent + "|" + gid; }
 
     static void init() {
+        // phone whispers are caught whether the server shows them as chat or as a system message
         ClientReceiveMessageEvents.ALLOW_CHAT.register((message, signed, sender, params, ts) -> !handle(message));
         ClientReceiveMessageEvents.ALLOW_GAME.register((message, overlay) -> !handle(message));
         ClientTickEvents.END_CLIENT_TICK.register(PhoneNet::tick);
@@ -61,18 +63,29 @@ final class PhoneNet {
 
     private static String str(Object o) { return o instanceof Component c ? c.getString() : String.valueOf(o); }
 
-    /** @return true if this was one of our phone whispers (so it should be hidden from chat) */
-    private static boolean handle(Component msg) {
-        if (!(msg.getContents() instanceof TranslatableContents tc)) return false;
-        String key = tc.getKey();
-        boolean incoming = key.equals("commands.message.display.incoming");
-        boolean outgoing = key.equals("commands.message.display.outgoing");
-        if (!incoming && !outgoing) return false;
-        Object[] a = tc.getArgs();
-        if (a.length < 2) return false;
-        String text = str(a[1]);
-        if (!text.startsWith(MARK)) return false;
-        if (incoming) receive(str(a[0]), text.substring(MARK.length()));
+    /** the invisible marker (or a plain one in custom-server mode) that starts every phone whisper */
+    static String marker() { return Settings.customMode ? MARK_PLAIN : MARK; }
+
+    /**
+     * Looks at ANY chat or system message. Phone whispers carry "marker + senderName | type + body", so they
+     * work with vanilla /msg and with the custom whisper formats of plugin servers. Returns true if the
+     * message was one of ours (it is then hidden from chat).
+     */
+    static boolean handle(Component msg) { return handleText(msg.getString()); }
+
+    static boolean handleText(String text) {
+        int i = text.indexOf(MARK), len = MARK.length();
+        int j = text.indexOf(MARK_PLAIN);
+        if (i < 0 || (j >= 0 && j < i)) { i = j; len = MARK_PLAIN.length(); }
+        if (i < 0) return false;
+        String payload = text.substring(i + len);
+        int bar = payload.indexOf('|');
+        if (bar < 1 || bar > 16 || bar + 1 >= payload.length()) return true;         // ours but malformed: hide, ignore
+        String claimed = payload.substring(0, bar), body = payload.substring(bar + 1);
+        if (claimed.equals(myName())) return true;                                    // my own outgoing echo
+        // the server wrote the sender's name before our text; if it did not, someone may be pretending
+        if (!Settings.customMode && !text.substring(0, i).contains(claimed)) return true;
+        receive(claimed, body);
         return true;
     }
 
@@ -93,6 +106,7 @@ final class PhoneNet {
             case 'G' -> game(from, rest);
             case 'Z' -> { contacts.add(from); MusicEngine.onRemote(from, rest); }
             case 'T' -> { contacts.add(from); Calls.onSignal(from, rest); }
+            case 'U' -> { contacts.add(from); Presence.onRemote(from, rest); }
             case 'F' -> { contacts.add(from); if (!rest.isEmpty()) Sfx.remote(from, rest.charAt(0)); }
             default -> { }
         }
@@ -151,7 +165,7 @@ final class PhoneNet {
     }
 
     // ---------- sending ----------
-    static String cmd(String to, char type, String text) { return "msg " + to + " " + MARK + type + text; }
+    static String cmd(String to, char type, String text) { return Settings.COMMANDS[Settings.cmdIndex] + " " + to + " " + marker() + myName() + "|" + type + text; }
 
     static void enqueue(String to, char type, String text) { final String c = cmd(to, type, text); outbox.add(() -> c); }
 

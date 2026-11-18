@@ -126,6 +126,7 @@ final class Games {
             case 'T' -> new TicTacToeGame(opponent, first);
             case '4' -> new Connect4Game(opponent, first);
             case 'K' -> new CheckersGame(opponent, first);
+            case 'P' -> new PingPongGame(opponent, first);
             default -> null;
         };
     }

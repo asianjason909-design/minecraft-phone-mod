@@ -35,9 +35,9 @@ public class PhoneScreen extends Screen {
     private App app = App.HOME;
     private Game game;
     private final MessagesApp messages = new MessagesApp();
-    private final long openNs = System.nanoTime();
-    private long closeNs = -1, lastNs = openNs;
+    private long openNs = System.nanoTime(), closeNs = -1, lastNs = System.nanoTime();
     private float closeFrom = 1f;
+    private boolean visible, docked, dockPlaced;   // visible = the Screen is open; docked = small HUD phone
     private float scale = 1f, pcx, pcy;   // phone centre on screen + scale
 
     // home-screen touch state
@@ -51,10 +51,50 @@ public class PhoneScreen extends Screen {
     private boolean dragPhone;
     private Mode mode = Mode.NONE;
 
-    public PhoneScreen() {
-        super(Component.literal("Phone"));
+    private static PhoneScreen instance;
+    static final float DOCK = 0.55f;
+
+    private PhoneScreen() { super(Component.literal("Phone")); }
+
+    /** one phone object for the whole session, so docking keeps your app, call or recording alive */
+    static PhoneScreen get() { if (instance == null) instance = new PhoneScreen(); return instance; }
+
+    /** bring the phone up (from nothing or from the docked corner) */
+    void show() {
+        openNs = System.nanoTime(); closeNs = -1; lastNs = openNs; closeFrom = 1f;
+        visible = true; docked = false; homeDown = false; dragPhone = false; mode = Mode.NONE;
         Sfx.share('o');
         if (Calls.state == Calls.State.IN) openApp(Calls.video ? "facetime" : "call");
+        Minecraft.getInstance().setScreenAndShow(this);
+    }
+
+    private boolean keepDocked() {
+        return Calls.state != Calls.State.IDLE || Capture.recording || (app == App.GAME && game != null && game.dockable());
+    }
+
+    @Override public void removed() { visible = false; }
+
+    /** which app other players should see in your hand (null = phone put away) */
+    static String presenceId() {
+        PhoneScreen s = instance;
+        if (s == null || !(s.visible || s.docked)) return null;
+        return switch (s.app) { case HOME -> "home"; case MESSAGES -> "messages"; case SETTINGS -> "settings"; case GAME -> s.game == null ? "home" : s.game.id; };
+    }
+
+    /** key K: shutter / hang up / stop recording */
+    static void action() {
+        if (Capture.recording) { CameraApp.stopRec(); return; }
+        if (Calls.state == Calls.State.IN) { Calls.accept(); return; }
+        if (Calls.state != Calls.State.IDLE) { Calls.hangup(); return; }
+        PhoneScreen s = instance;
+        if (s != null && s.docked && s.app == App.GAME && s.game instanceof CameraApp) CameraApp.shutter();
+    }
+
+    /** key J: flip the camera */
+    static void flipKey() {
+        if (Calls.state != Calls.State.IDLE && Calls.video) { Calls.flip(); return; }
+        PhoneScreen s = instance;
+        if (s != null && s.docked && s.app == App.GAME && s.game instanceof CameraApp) CameraApp.flip();
     }
 
     @Override public boolean isPauseScreen() { return false; }
@@ -108,6 +148,12 @@ public class PhoneScreen extends Screen {
 
     private void leaveGame() { if (app == App.GAME && game != null) game.saveStats(); }
 
+    private void finishClose() {
+        visible = false;
+        docked = keepDocked();
+        minecraft.setScreenAndShow(null);
+    }
+
     private void startClose() {
         if (closeNs >= 0) return;
         leaveGame();
@@ -120,39 +166,66 @@ public class PhoneScreen extends Screen {
 
     // ---------- render ----------
     @Override
-    public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float pt) {
+    public void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float pt) { renderPhone(g, width, height, mx, my, true); }
+
+    /** the docked phone: drawn by the HUD, no mouse, keeps running */
+    static void hud(GuiGraphicsExtractor g) {
+        PhoneScreen s = instance;
+        if (s == null || s.visible || Capture.hideUi) return;
+        Minecraft mc = Minecraft.getInstance();
+        int w = mc.getWindow().getGuiScaledWidth(), h = mc.getWindow().getGuiScaledHeight();
+        if (Capture.recording) {   // while recording only a small badge shows; Esc earlier docked the phone away
+            g.fill(w - 64, 6, w - 6, 19, 0x99000000);
+            if (((int) (Capture.recSeconds() * 2) & 1) == 0) g.fill(w - 60, 10, w - 54, 16, 0xFFE53935);
+            g.text(mc.font, String.format("REC %.0fs", Capture.recSeconds()), w - 50, 9, 0xFFFFFFFF);
+            return;
+        }
+        if (s.docked) s.renderPhone(g, w, h, -10000, -10000, false);
+    }
+
+    private void renderPhone(GuiGraphicsExtractor g, int sw, int sh, int mx, int my, boolean interactive) {
         long now = System.nanoTime();
         float dt = Math.min((now - lastNs) / 1e9f, 0.05f);
         lastNs = now;
-        float p = progress(now);
-        if (closeNs >= 0 && p <= 0.001f) { minecraft.setScreenAndShow(null); return; }
+        float p = interactive ? progress(now) : 1f;
+        if (interactive && closeNs >= 0 && p <= 0.001f) { finishClose(); return; }
+        if (Capture.hideUi) return;
 
-        scale = Math.min(height * 0.82f / PH, 3f);
-        // swings in from the bottom-right, tilted, and straightens out
-        if (dragPhone) {
-            offX = Math.max(-width / 2f, Math.min(width / 2f, dragOffX0 + (mx - dragMx)));
-            offY = Math.max(-height / 2f, Math.min(height / 2f, dragOffY0 + (my - dragMy)));
+        float base = Math.min(sh * 0.82f / PH, 3f), sc = interactive ? base : base * DOCK;
+        if (interactive && dragPhone) {
+            offX = Math.max(-sw / 2f, Math.min(sw / 2f, dragOffX0 + (mx - dragMx)));
+            offY = Math.max(-sh / 2f, Math.min(sh / 2f, dragOffY0 + (my - dragMy)));
         }
-        pcx = width / 2f + offX + (1f - p) * width * 0.22f;
-        pcy = height / 2f + offY + (1f - p) * (height * 0.5f + PH * scale * 0.5f + 12f);
-        float lx = (mx - pcx) / scale + PW / 2f - SX;
-        float ly = (my - pcy) / scale + PH / 2f - SY;
+        if (!interactive && !dockPlaced) { if (offX == 0 && offY == 0) { offX = sw * 0.30f; offY = sh * 0.18f; } dockPlaced = true; }
+        // swings in from the bottom-right, tilted, and straightens out
+        float cx = sw / 2f + offX + (1f - p) * sw * 0.22f;
+        float cy = sh / 2f + offY + (1f - p) * (sh * 0.5f + PH * sc * 0.5f + 12f);
+        if (interactive) { scale = sc; pcx = cx; pcy = cy; }
+        float lx = (mx - cx) / sc + PW / 2f - SX;
+        float ly = (my - cy) / sc + PH / 2f - SY;
+        boolean clear = app == App.GAME && game != null && game.transparent();   // camera: see the real game through the phone
 
-        g.fill(0, 0, width, height, ((int) (110 * Math.max(0f, Math.min(1f, p)))) << 24);
+        if (interactive && !clear) g.fill(0, 0, sw, sh, ((int) (110 * Math.max(0f, Math.min(1f, p)))) << 24);
 
         g.pose().pushMatrix();
-        g.pose().translate(pcx, pcy);
+        g.pose().translate(cx, cy);
         g.pose().rotate((1f - p) * 0.45f);
-        g.pose().scale(scale, scale);
+        g.pose().scale(sc, sc);
         g.pose().translate(-PW / 2f, -PH / 2f);
 
-        round(g, 0, 0, PW, PH, 0xFF3A3A44);
-        round(g, 1, 1, PW - 1, PH - 1, 0xFF111114);
-        g.fill(SX, SY, SX + SW, SY + SH, 0xFF000000);
+        if (!clear) {
+            round(g, 0, 0, PW, PH, 0xFF3A3A44);
+            round(g, 1, 1, PW - 1, PH - 1, 0xFF111114);
+            g.fill(SX, SY, SX + SW, SY + SH, 0xFF000000);
+        } else {   // frame only, with a hole where the screen is
+            g.fill(0, 0, PW, SY, 0xFF111114); g.fill(0, SY + SH, PW, PH, 0xFF111114);
+            g.fill(0, SY, SX, SY + SH, 0xFF111114); g.fill(SX + SW, SY, PW, SY + SH, 0xFF111114);
+            g.fill(SX - 1, SY - 1, SX + SW + 1, SY, 0xFF3A3A44); g.fill(SX - 1, SY + SH, SX + SW + 1, SY + SH + 1, 0xFF3A3A44);
+        }
 
         boolean live = closeNs < 0 && p > 0.9f;
         switch (app) {
-            case HOME -> { if (homeDown) homeTick(lx, ly, now); drawHome(g); }
+            case HOME -> { if (homeDown && interactive) homeTick(lx, ly, now); drawHome(g); }
             case SETTINGS -> drawSettings(g);
             case MESSAGES -> messages.draw(g);
             case GAME -> {
@@ -292,25 +365,29 @@ public class PhoneScreen extends Screen {
     }
 
     private static int swatchX(int i) { return 4 + (i % 3) * 38; }
-    private static int swatchY(int i) { return 22 + (i / 3) * 50; }
+    private static int swatchY(int i) { return 18 + (i / 3) * 40; }
 
     private void drawSettings(GuiGraphicsExtractor g) {
         g.fillGradient(SX, SY, SX + SW, SY + SH, 0xFF14161C, 0xFF0B0C10);
-        ctr(g, "Wallpaper", SW / 2, 7, 0xFFFFFFFF, 1.2f);
+        ctr(g, "Wallpaper", SW / 2, 5, 0xFFFFFFFF, 1.1f);
         for (int i = 0; i < WALLS.length; i++) {
             int x = swatchX(i), y = swatchY(i);
-            if (i == Settings.wallpaper) box(g, x - 2, y - 2, x + 36, y + 42, 0xFFFFFFFF);
-            g.fillGradient(SX + x, SY + y, SX + x + 34, SY + y + 40, WALLS[i][0], WALLS[i][1]);
-            ctr(g, WALL_NAMES[i], x + 17, y + 42, 0xFFFFFFFF, 0.7f);
+            if (i == Settings.wallpaper) box(g, x - 2, y - 2, x + 36, y + 34, 0xFFFFFFFF);
+            g.fillGradient(SX + x, SY + y, SX + x + 34, SY + y + 32, WALLS[i][0], WALLS[i][1]);
+            ctr(g, WALL_NAMES[i], x + 17, y + 25, 0xFFFFFFFF, 0.65f);
         }
-        box(g, 4, 126, 114, 142, Settings.sound ? 0xFF2E7D32 : 0xFF555555);
-        ctr(g, "Sounds: " + (Settings.sound ? "ON" : "OFF"), SW / 2, 130, 0xFFFFFFFF, 0.95f);
-        box(g, 4, 146, 114, 162, Settings.nearby ? 0xFF2E7D32 : 0xFF555555);
-        ctr(g, "Nearby sharing: " + (Settings.nearby ? "ON" : "OFF"), SW / 2, 150, 0xFFFFFFFF, 0.95f);
-        box(g, 4, 166, 114, 182, 0xFF37474F);
-        ctr(g, "Reset icon layout", SW / 2, 170, 0xFFFFFFFF, 0.95f);
-        ctr(g, "Nearby = players with the mod", SW / 2, 190, 0xFF8A8F9E, 0.7f);
-        ctr(g, "hear your music and key sounds", SW / 2, 199, 0xFF8A8F9E, 0.7f);
+        String[] labels = {
+            "Sounds: " + (Settings.sound ? "ON" : "OFF"), "Nearby sharing: " + (Settings.nearby ? "ON" : "OFF"),
+            "Custom server mode: " + (Settings.customMode ? "ON" : "OFF"), "Whisper command: /" + Settings.COMMANDS[Settings.cmdIndex],
+            "Reset icon layout"};
+        boolean[] on = {Settings.sound, Settings.nearby, Settings.customMode, true, false};
+        for (int i = 0; i < labels.length; i++) {
+            int y = 102 + i * 19;
+            box(g, 4, y, 114, y + 16, i == 4 ? 0xFF37474F : on[i] ? 0xFF2E7D32 : 0xFF555555);
+            ctr(g, labels[i], SW / 2, y + 4, 0xFFFFFFFF, 0.85f);
+        }
+        ctr(g, "Custom mode: use on plugin servers", SW / 2, 199, 0xFF8A8F9E, 0.65f);
+        ctr(g, "that change how whispers look", SW / 2, 207, 0xFF8A8F9E, 0.65f);
     }
 
     // ---------- input ----------
@@ -391,10 +468,19 @@ public class PhoneScreen extends Screen {
             case SETTINGS -> {
                 Sfx.play('c');
                 for (int i = 0; i < WALLS.length; i++)
-                    if (x >= swatchX(i) && x <= swatchX(i) + 34 && y >= swatchY(i) && y <= swatchY(i) + 40) { Settings.wallpaper = i; Settings.save(); }
-                if (x >= 4 && x <= 114 && y >= 126 && y <= 142) { Settings.sound = !Settings.sound; Settings.save(); }
-                if (x >= 4 && x <= 114 && y >= 146 && y <= 162) { Settings.nearby = !Settings.nearby; Settings.save(); }
-                if (x >= 4 && x <= 114 && y >= 166 && y <= 182) { Settings.resetOrder(); page = 0; }
+                    if (x >= swatchX(i) && x <= swatchX(i) + 34 && y >= swatchY(i) && y <= swatchY(i) + 32) { Settings.wallpaper = i; Settings.save(); }
+                for (int i = 0; i < 5; i++) {
+                    int by = 102 + i * 19;
+                    if (x < 4 || x > 114 || y < by || y > by + 16) continue;
+                    switch (i) {
+                        case 0 -> Settings.sound = !Settings.sound;
+                        case 1 -> Settings.nearby = !Settings.nearby;
+                        case 2 -> Settings.customMode = !Settings.customMode;
+                        case 3 -> Settings.cmdIndex = (Settings.cmdIndex + 1) % Settings.COMMANDS.length;
+                        default -> { Settings.resetOrder(); page = 0; }
+                    }
+                    Settings.save();
+                }
             }
         }
         return true;

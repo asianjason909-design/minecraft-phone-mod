@@ -12,7 +12,9 @@ import java.util.List;
 final class Settings {
     static final int WALLPAPERS = 6;
     static int wallpaper = 0;
-    static boolean sound = true, nearby = true;
+    static boolean sound = true, nearby = true, customMode = false;
+    static final String[] COMMANDS = {"msg", "tell", "w", "m", "whisper"};
+    static int cmdIndex = 0;
     static final List<String> order = new ArrayList<>();
     static Path fileOverride;   // tests only
 
@@ -28,6 +30,8 @@ final class Settings {
             if (ls.size() > 1) for (String s : ls.get(1).split(",")) if (!s.isBlank()) saved.add(s.trim());
             if (ls.size() > 2) sound = !ls.get(2).trim().equals("0");
             if (ls.size() > 3) nearby = !ls.get(3).trim().equals("0");
+            if (ls.size() > 4) customMode = ls.get(4).trim().equals("1");
+            if (ls.size() > 5) cmdIndex = Math.floorMod(Integer.parseInt(ls.get(5).trim()), COMMANDS.length);
         } catch (Exception ignored) { }
         List<String> valid = Arrays.asList(Games.DEFAULT_ORDER);
         order.clear();
@@ -36,7 +40,7 @@ final class Settings {
     }
 
     static void save() {
-        try { Files.writeString(file(), wallpaper + "\n" + String.join(",", order) + "\n" + (sound ? 1 : 0) + "\n" + (nearby ? 1 : 0)); }
+        try { Files.writeString(file(), wallpaper + "\n" + String.join(",", order) + "\n" + (sound ? 1 : 0) + "\n" + (nearby ? 1 : 0) + "\n" + (customMode ? 1 : 0) + "\n" + cmdIndex); }
         catch (Exception ignored) { }
     }
 

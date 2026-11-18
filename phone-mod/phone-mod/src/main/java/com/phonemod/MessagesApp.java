@@ -116,8 +116,8 @@ final class MessagesApp {
             String k = PhoneNet.key(open, PhoneNet.GAME_IDS[i]);
             int col = PhoneNet.games.containsKey(k) ? 0xFF3F6E3F : PhoneNet.invitesIn.contains(k) ? 0xFFB8860B
                     : PhoneNet.invitesOut.contains(k) ? 0xFF555555 : 0xFF2E5C9E;
-            PhoneScreen.box(g, 4 + i * 28, 162, 4 + i * 28 + 26, 176, col);
-            PhoneScreen.ctr(g, PhoneNet.GAME_LABELS[i], 4 + i * 28 + 13, 166, 0xFFFFFFFF, 0.65f);
+            PhoneScreen.box(g, 4 + i * 22, 162, 4 + i * 22 + 21, 176, col);
+            PhoneScreen.ctr(g, PhoneNet.GAME_LABELS[i], 4 + i * 22 + 10, 166, 0xFFFFFFFF, 0.55f);
         }
 
         // input row
@@ -152,8 +152,8 @@ final class MessagesApp {
         if (x >= 4 && x <= 18 && y >= 4 && y <= 18) { open = null; return; }
         if (x >= 88 && x <= 114 && y >= 180 && y <= 196) { send(); return; }
         if (y >= 162 && y <= 176) {
-            int i = (int) ((x - 4) / 28);
-            if (i >= 0 && i < PhoneNet.GAME_IDS.length && x <= 4 + i * 28 + 26) gameAction(i);
+            int i = (int) ((x - 4) / 22);
+            if (i >= 0 && i < PhoneNet.GAME_IDS.length && x <= 4 + i * 22 + 21) gameAction(i);
         }
     }
 
