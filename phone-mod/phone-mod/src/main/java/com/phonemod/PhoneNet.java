@@ -179,6 +179,11 @@ final class PhoneNet {
 
     static int queueSize() { return outbox.size(); }
 
+    /** called when you join another server: nothing queued for the old one should leak into the new one */
+    static void clearSession() {
+        outbox.clear(); photoParts.clear(); invitesIn.clear(); invitesOut.clear(); games.clear(); unread.clear();
+    }
+
     static String myName() { return meName.get(); }
 
     static List<String> onlineNames() { return online.get(); }

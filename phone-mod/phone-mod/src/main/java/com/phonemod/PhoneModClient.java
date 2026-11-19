@@ -11,7 +11,7 @@ import net.minecraft.resources.Identifier;
 import org.lwjgl.glfw.GLFW;
 
 public class PhoneModClient implements ClientModInitializer {
-    public static KeyMapping OPEN_PHONE, ACTION, FLIP;
+    public static KeyMapping OPEN_PHONE, ACTION, FLIP, RECORD;
 
     @Override
     public void onInitializeClient() {
@@ -23,6 +23,9 @@ public class PhoneModClient implements ClientModInitializer {
                 new KeyMapping("key.phonemod.action", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, category));
         FLIP = KeyMappingHelper.registerKeyMapping(
                 new KeyMapping("key.phonemod.flip", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_J, category));
+
+        RECORD = KeyMappingHelper.registerKeyMapping(
+                new KeyMapping("key.phonemod.record", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_R, category));
 
         PhoneNet.init();
 
@@ -38,6 +41,8 @@ public class PhoneModClient implements ClientModInitializer {
             }
             while (ACTION.consumeClick()) PhoneScreen.action();
             while (FLIP.consumeClick()) PhoneScreen.flipKey();
+            while (RECORD.consumeClick()) PhoneScreen.recordKey();
+            PhoneScreen.checkServerChange(mc.getConnection());
             Capture.tick();
             Presence.tick();
         });

@@ -90,6 +90,35 @@ public class PhoneScreen extends Screen {
         if (s != null && s.docked && s.app == App.GAME && s.game instanceof CameraApp) CameraApp.shutter();
     }
 
+    /** key R: start / stop recording */
+    static void recordKey() {
+        if (Capture.recording) { CameraApp.stopRec(); return; }
+        PhoneScreen s = instance;
+        if (s != null && s.docked && s.app == App.GAME && s.game instanceof CameraApp) CameraApp.startRec();
+    }
+
+    private static Object lastConnection;
+
+    /** call every tick with the current connection; when it changes (another server) everything is reset */
+    static void checkServerChange(Object connection) {
+        if (connection == lastConnection) return;
+        lastConnection = connection;
+        resetSession();
+    }
+
+    static void resetSession() {
+        PhoneScreen s = instance;
+        if (s != null) { s.visible = false; s.docked = false; s.closeNs = -1; s.dragPhone = false; s.homeDown = false; s.mode = Mode.NONE; s.app = App.HOME; }
+        Capture.reset();
+        cameraTip = false;
+        Calls.state = Calls.State.IDLE;
+        MusicEngine.playing = false; MusicEngine.remote.clear(); MusicEngine.listeners.clear();
+        Presence.others.clear(); Presence.told.clear(); Presence.lastCode = -1;
+        PhoneNet.clearSession();
+    }
+
+    private static boolean cameraTip;
+
     /** key J: flip the camera */
     static void flipKey() {
         if (Calls.state != Calls.State.IDLE && Calls.video) { Calls.flip(); return; }
@@ -407,6 +436,11 @@ public class PhoneScreen extends Screen {
         game = gm; gm.keys.clear(); gm.down = false;
         if (gm.resetOnOpen) gm.reset();
         app = App.GAME;
+        if (gm instanceof CameraApp) {   // an open phone locks your movement, so the camera docks straight away
+            visible = false; docked = true; homeDown = false; mode = Mode.NONE;
+            if (!cameraTip) { cameraTip = true; PhoneNet.notify("[Phone] Camera ready - you can walk around. K = screenshot, R = record, J = flip camera, P = open the phone"); }
+            Minecraft.getInstance().setScreenAndShow(null);
+        }
     }
 
     @Override

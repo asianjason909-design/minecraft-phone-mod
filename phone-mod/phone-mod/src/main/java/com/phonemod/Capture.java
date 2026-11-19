@@ -80,6 +80,12 @@ final class Capture {
         }
     }
 
+    /** forget everything in flight (used when you change server) and put the game's HUD back */
+    static void reset() {
+        if (hideUi) backend.setHideGui(prevHide);
+        hideUi = false; recording = false; shotDone = null; stage = 0; inFlight = 0; frames.clear();
+    }
+
     static void flipView() { backend.setThirdPersonFront(!backend.thirdPersonFront()); }
 
     // ---------- turning the game's image into something Java can use ----------

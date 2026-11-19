@@ -318,7 +318,7 @@ final class CameraApp extends Game {
         if (!Capture.screenshot(full -> {
             if (full == null) { say("Screenshot not available on this version"); return; }
             Item it = new Item();
-            it.thumb = Pic.of(full, 32, 18); it.preview = Pic.of(full, 48, 27); it.small = Photo.fromImage(full);
+            it.thumb = Pic.of(full, 34, 19); it.preview = Pic.of(full, 96, 54); it.small = Photo.fromImage(full);
             String name = "phone_" + stamp() + ".png";
             it.file = name;
             Capture.io.execute(() -> {
@@ -327,6 +327,7 @@ final class CameraApp extends Game {
             });
             addItem(it);
             say("Saved screenshots/" + name);
+            PhoneNet.notify("[Phone] Screenshot saved: " + shots().resolve(name));
         })) return;
         Sfx.share('b');
     }
@@ -343,8 +344,8 @@ final class CameraApp extends Game {
         List<BufferedImage> fr = Capture.stopRecording();
         if (fr.size() < 2) { say("Clip too short"); return; }
         Item it = new Item(); it.isClip = true; it.clip = new ArrayList<>();
-        for (BufferedImage b : fr) it.clip.add(Pic.of(b, 48, 27));
-        it.thumb = Pic.of(fr.get(0), 32, 18); it.preview = it.clip.get(0); it.small = Photo.fromImage(fr.get(0));
+        for (BufferedImage b : fr) it.clip.add(Pic.of(b, 96, 54));
+        it.thumb = Pic.of(fr.get(0), 34, 19); it.preview = it.clip.get(0); it.small = Photo.fromImage(fr.get(0));
         String name = "clip_" + stamp() + ".gif";
         it.file = name;
         Capture.io.execute(() -> {
@@ -353,6 +354,7 @@ final class CameraApp extends Game {
         });
         addItem(it);
         say("Saved clip " + name);
+        PhoneNet.notify("[Phone] Clip saved: " + dir().resolve("clips").resolve(name));
         Sfx.play('w');
     }
 
@@ -371,7 +373,7 @@ final class CameraApp extends Game {
                 if (in(x, y, 4, 4, 18, 18)) { mode = Mode.VIEW; return; }
                 for (int i = 0; i < items.size(); i++) {
                     int tx = 4 + (i % 3) * 38, ty = 26 + (i / 3) * 30;
-                    if (in(x, y, tx, ty, tx + 32, ty + 18)) { sel = items.get(i); mode = Mode.DETAIL; Sfx.play('c'); return; }
+                    if (in(x, y, tx, ty, tx + 34, ty + 19)) { sel = items.get(i); mode = Mode.DETAIL; Sfx.play('c'); return; }
                 }
             }
             case DETAIL -> {
@@ -443,13 +445,14 @@ final class CameraApp extends Game {
                 txt(g, sel.isClip ? "Clip" : "Photo", 24, 7, WHITE);
                 Pic p = sel.preview;
                 if (sel.isClip) p = sel.clip.get((int) (System.nanoTime() / 350_000_000L) % sel.clip.size());
-                p.draw(g, 11, 26, 2);
+                p.draw(g, 11, 26, 1);
                 box(g, 4, 152, 58, 168, sel.isClip ? 0xFF444B58 : 0xFF2E86DE); ctr(g, "Send", 31, 156, WHITE, 1f);
                 box(g, 62, 152, 114, 168, 0xFF8E2A2A); ctr(g, "Delete", 88, 156, WHITE, 1f);
                 boolean fresh = System.currentTimeMillis() < statusUntil;
                 String line = fresh ? status : (sel.file == null ? "" : sel.file);
                 ctr(g, line.length() > 30 ? line.substring(0, 30) : line, W / 2, 176, fresh ? 0xFF8FD6DD : GRAY, 0.7f);
-                ctr(g, sel.isClip ? sel.clip.size() + " frames - GIF in phonemod/clips" : "Full size in the screenshots folder", W / 2, 188, GRAY, 0.7f);
+                ctr(g, sel.isClip ? sel.clip.size() + " frames - GIF in phonemod/clips" : "Real full-size PNG in screenshots", W / 2, 188, GRAY, 0.7f);
+                ctr(g, "(this is just a small preview)", W / 2, 198, GRAY, 0.65f);
             }
             case PICK -> {
                 back(g); txt(g, "Send to...", 24, 7, WHITE);

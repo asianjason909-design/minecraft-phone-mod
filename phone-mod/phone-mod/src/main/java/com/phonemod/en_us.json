@@ -1,6 +1,7 @@
 {
   "key.phonemod.open": "Pull Out Phone",
   "key.phonemod.action": "Phone: shutter / hang up / stop recording",
+  "key.phonemod.record": "Phone: start / stop recording",
   "key.phonemod.flip": "Phone: flip camera",
   "key.category.phonemod.main": "Phone Mod"
 }
